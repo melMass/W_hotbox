@@ -1,8 +1,8 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-version = '1.6'
-releaseDate = 'May 13 2017'
+version = '1.7'
+releaseDate = 'June 26 2017'
 
 #----------------------------------------------------------------------------------------------------------
 #
@@ -39,7 +39,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #----------------------------------------------------------------------------------------------------------
 
 import nuke
-from PySide import QtGui, QtCore
+
+#Choose between PySide and PySide2 based on Nuke version
+if nuke.NUKE_VERSION_MAJOR < 11:
+    from PySide import QtCore, QtGui, QtGui as QtWidgets
+else:
+    from PySide2 import QtGui, QtCore, QtWidgets
 
 import os
 import subprocess
@@ -55,7 +60,7 @@ operatingSystem = platform.system()
 
 #----------------------------------------------------------------------------------------------------------
 
-class hotbox(QtGui.QWidget):
+class hotbox(QtWidgets.QWidget):
     '''
     The main class for the hotbox
     '''
@@ -77,7 +82,7 @@ class hotbox(QtGui.QWidget):
         if operatingSystem not in ['Darwin','Windows']:
             self.setAttribute(QtCore.Qt.WA_PaintOnScreen)
 
-        masterLayout = QtGui.QVBoxLayout()
+        masterLayout = QtWidgets.QVBoxLayout()
         self.setLayout(masterLayout)
 
         self.selection = nuke.selectedNodes()
@@ -110,7 +115,7 @@ class hotbox(QtGui.QWidget):
                 self.mode = 'Single'
 
             #Layouts
-            centerLayout = QtGui.QHBoxLayout()
+            centerLayout = QtWidgets.QHBoxLayout()
 
             centerLayout.addStretch()
             centerLayout.addWidget(hotboxButton('Reveal in %s'%getFileBrowser(),'revealInBrowser()'))
@@ -144,7 +149,7 @@ class hotbox(QtGui.QWidget):
 
 
             #Stretch layout
-            centerLayout = QtGui.QHBoxLayout()
+            centerLayout = QtWidgets.QHBoxLayout()
 
             centerLayout.addStretch()
             for index, item in enumerate(centerItems):
@@ -169,7 +174,7 @@ class hotbox(QtGui.QWidget):
 
         if difference != 0:
 
-            extraLayout = QtGui.QVBoxLayout()
+            extraLayout = QtWidgets.QVBoxLayout()
 
             for i in range(abs(difference)):
                 extraLayout.addSpacing(35)
@@ -252,7 +257,7 @@ class hotbox(QtGui.QWidget):
 #Button field
 #----------------------------------------------------------------------------------------------------------
 
-class nodeButtons(QtGui.QVBoxLayout):
+class nodeButtons(QtWidgets.QVBoxLayout):
     '''
     Create QLayout filled with buttons
     '''
@@ -388,7 +393,7 @@ class nodeButtons(QtGui.QVBoxLayout):
 
         #nodeHotboxLayout
         for row in rows:
-            self.rowLayout = QtGui.QHBoxLayout()
+            self.rowLayout = QtWidgets.QHBoxLayout()
 
             self.rowLayout.addStretch()
 
@@ -403,7 +408,7 @@ class nodeButtons(QtGui.QVBoxLayout):
 
 #----------------------------------------------------------------------------------------------------------
 
-class hotboxCenter(QtGui.QLabel):
+class hotboxCenter(QtWidgets.QLabel):
     '''
     Center button of the hotbox.
     If the 'color nodes' is set to True in the preferences panel, the button will take over the color and
@@ -507,7 +512,7 @@ class hotboxCenter(QtGui.QLabel):
 #Buttons
 #----------------------------------------------------------------------------------------------------------
 
-class hotboxButton(QtGui.QLabel):
+class hotboxButton(QtWidgets.QLabel):
     '''
     Button class
     '''

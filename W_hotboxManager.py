@@ -1,8 +1,8 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-version = '1.6'
-releaseDate = 'May 13 2017'
+version = '1.7'
+releaseDate = 'June 26 2017'
 
 #----------------------------------------------------------------------------------------------------------
 #
@@ -39,7 +39,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #----------------------------------------------------------------------------------------------------------
 
 import nuke
-from PySide import QtGui, QtCore
+
+#Choose between PySide and PySide2 based on Nuke version
+if nuke.NUKE_VERSION_MAJOR < 11:
+    from PySide import QtCore, QtGui, QtGui as QtWidgets
+else:
+    from PySide2 import QtGui, QtCore, QtWidgets
 
 import os
 import shutil
@@ -57,7 +62,7 @@ preferencesNode = nuke.toNode('preferences')
 
 #----------------------------------------------------------------------------------------------------------
 
-class hotboxManager(QtGui.QWidget):
+class hotboxManager(QtWidgets.QWidget):
     def __init__(self, path = ''):
         super(hotboxManager, self).__init__()
 
@@ -66,7 +71,7 @@ class hotboxManager(QtGui.QWidget):
         #--------------------------------------------------------------------------------------------------
 
         #parent to main nuke interface
-        self.setParent(QtGui.QApplication.instance().activeWindow())
+        self.setParent(QtWidgets.QApplication.instance().activeWindow())
         self.setWindowFlags(QtCore.Qt.Tool)
 
         self.setWindowTitle('W_hotbox Manager - %s'%path)
@@ -92,7 +97,7 @@ class hotboxManager(QtGui.QWidget):
             preferencesLocation += '/'
 
         if self.rootLocation == preferencesLocation:
-            for subFolder in ['','Single','Multiple','All','Single/No Selection']:
+            for subFolder in ['','Single','Multiple','All','Single/No Selection','Templates']:
                 subFolderPath = self.rootLocation + subFolder
                 if not os.path.isdir(subFolderPath):
                     try:
@@ -106,9 +111,9 @@ class hotboxManager(QtGui.QWidget):
         #classes list
         #--------------------------------------------------------------------------------------------------
 
-        self.classesListLayout = QtGui.QVBoxLayout()
+        self.classesListLayout = QtWidgets.QVBoxLayout()
 
-        self.scopeComboBox = QtGui.QComboBox()
+        self.scopeComboBox = QtWidgets.QComboBox()
         self.scopeComboBoxItems = ['Single','Multiple','All']
         self.scopeComboBox.addItems(self.scopeComboBoxItems)
 
@@ -121,7 +126,7 @@ class hotboxManager(QtGui.QWidget):
         self.classesListLayout.addWidget(self.classesList)
 
         #buttons
-        self.classesListButtonsLayout = QtGui.QVBoxLayout()
+        self.classesListButtonsLayout = QtWidgets.QVBoxLayout()
 
         self.classesListAddButton = QLabelButton('add',self.classesList)
         self.classesListRemoveButton = QLabelButton('remove',self.classesList)
@@ -153,7 +158,7 @@ class hotboxManager(QtGui.QWidget):
         #hotbox items tree actions
         #--------------------------------------------------------------------------------------------------
 
-        self.hotboxItemsTreeButtonsLayout = QtGui.QVBoxLayout()
+        self.hotboxItemsTreeButtonsLayout = QtWidgets.QVBoxLayout()
 
         self.hotboxItemsTreeAddButton = QLabelButton('add',self.hotboxItemsTree)
         self.hotboxItemsTreeAddFolderButton = QLabelButton('addFolder',self.hotboxItemsTree)
@@ -203,9 +208,9 @@ class hotboxManager(QtGui.QWidget):
         #--------------------------------------------------------------------------------------------------
 
         #create buttons
-        self.clipboardArchive = QtGui.QRadioButton('Clipboard')
-        self.importArchiveButton = QtGui.QPushButton('Import Archive')
-        self.exportArchiveButton = QtGui.QPushButton('Export Archive')
+        self.clipboardArchive = QtWidgets.QRadioButton('Clipboard')
+        self.importArchiveButton = QtWidgets.QPushButton('Import Archive')
+        self.exportArchiveButton = QtWidgets.QPushButton('Export Archive')
 
         self.importArchiveButton.setMaximumWidth(100)
         self.exportArchiveButton.setMaximumWidth(100)
@@ -223,7 +228,7 @@ class hotboxManager(QtGui.QWidget):
         self.exportArchiveButton.clicked.connect(self.exportHotboxArchive)
 
         #assemble
-        self.archiveButtonsLayout = QtGui.QHBoxLayout()
+        self.archiveButtonsLayout = QtWidgets.QHBoxLayout()
         self.archiveButtonsLayout.addStretch()
         self.archiveButtonsLayout.addWidget(self.clipboardArchive)
         self.archiveButtonsLayout.addWidget(self.importArchiveButton)
@@ -235,20 +240,20 @@ class hotboxManager(QtGui.QWidget):
         
         self.loadedScript = None
 
-        self.scriptEditorLayout = QtGui.QVBoxLayout()       
+        self.scriptEditorLayout = QtWidgets.QVBoxLayout()       
 
         #buttons
-        self.scriptEditorButtonsLayout = QtGui.QHBoxLayout()
+        self.scriptEditorButtonsLayout = QtWidgets.QHBoxLayout()
 
-        self.scriptEditorTemplateButton = QtGui.QToolButton()
+        self.scriptEditorTemplateButton = QtWidgets.QToolButton()
         self.scriptEditorTemplateButton.setText('Templates  ')
-        self.scriptEditorTemplateButton.setPopupMode(QtGui.QToolButton.InstantPopup)
+        self.scriptEditorTemplateButton.setPopupMode(QtWidgets.QToolButton.InstantPopup)
 
-        self.exitTemplateModeButton = QtGui.QPushButton('Exit template mode')
+        self.exitTemplateModeButton = QtWidgets.QPushButton('Exit template mode')
         self.exitTemplateModeButton.setStyleSheet('color: #f7931e')
         self.exitTemplateModeButton.setVisible(False)
 
-        self.scriptEditorImportButton = QtGui.QPushButton('Import')
+        self.scriptEditorImportButton = QtWidgets.QPushButton('Import')
         self.scriptEditorImportButton.clicked.connect(self.importScriptEditor)
 
         self.scriptEditorTemplateMenu = scriptEditorTemplateMenu(self)
@@ -263,19 +268,19 @@ class hotboxManager(QtGui.QWidget):
         self.scriptEditorButtonsLayout.addStretch()
 
         #name
-        self.scriptEditorNameLayout = QtGui.QHBoxLayout()
+        self.scriptEditorNameLayout = QtWidgets.QHBoxLayout()
 
-        self.scriptEditorNameLabel = QtGui.QLabel('Name')
+        self.scriptEditorNameLabel = QtWidgets.QLabel('Name')
         self.scriptEditorName = scriptEditorNameWidget()
         self.scriptEditorName.setAlignment(QtCore.Qt.AlignLeft)
 
         self.scriptEditorName.editingFinished.connect(self.saveScriptEditor)
 
         #color swatches
-        self.colorSwatchButtonLabel = QtGui.QLabel('Button')
+        self.colorSwatchButtonLabel = QtWidgets.QLabel('Button')
         self.colorSwatchButton = colorSwatch('#525252')
 
-        self.colorSwatchTextLabel = QtGui.QLabel('Text')
+        self.colorSwatchTextLabel = QtWidgets.QLabel('Text')
         self.colorSwatchText = colorSwatch('#eeeeee')
 
         self.colorSwatchButton.setChild(self.colorSwatchText)
@@ -316,13 +321,13 @@ class hotboxManager(QtGui.QWidget):
         #main buttons
         #--------------------------------------------------------------------------------------------------
 
-        self.mainButtonLayout = QtGui.QHBoxLayout()
+        self.mainButtonLayout = QtWidgets.QHBoxLayout()
 
-        self.aboutButton = QtGui.QPushButton('?')
+        self.aboutButton = QtWidgets.QPushButton('?')
         self.aboutButton.clicked.connect(self.openAboutDialog)
         self.aboutButton.setMaximumWidth(20)
 
-        self.mainCloseButton = QtGui.QPushButton('Close')
+        self.mainCloseButton = QtWidgets.QPushButton('Close')
         self.mainCloseButton.clicked.connect(self.closeManager)
 
         self.mainButtonLayout.addWidget(self.aboutButton)
@@ -333,7 +338,7 @@ class hotboxManager(QtGui.QWidget):
         #main layout
         #--------------------------------------------------------------------------------------------------
         
-        self.mainLayout = QtGui.QHBoxLayout()
+        self.mainLayout = QtWidgets.QHBoxLayout()
         self.mainLayout.addLayout(self.classesListButtonsLayout)
         self.mainLayout.addLayout(self.classesListLayout)
         self.mainLayout.addLayout(self.hotboxItemsTreeButtonsLayout)
@@ -344,7 +349,7 @@ class hotboxManager(QtGui.QWidget):
         #layouts
         #--------------------------------------------------------------------------------------------------
         
-        self.masterLayout = QtGui.QVBoxLayout()
+        self.masterLayout = QtWidgets.QVBoxLayout()
 
         self.masterLayout.addLayout(self.mainLayout)
         self.masterLayout.addLayout(self.mainButtonLayout)
@@ -357,7 +362,7 @@ class hotboxManager(QtGui.QWidget):
         
         self.adjustSize()
 
-        screenRes = QtGui.QDesktopWidget().screenGeometry()
+        screenRes = QtWidgets.QDesktopWidget().screenGeometry()
         self.move(QtCore.QPoint(screenRes.width()/2,screenRes.height()/2)-QtCore.QPoint((self.width()/2),(self.height()/2)))
 
         #--------------------------------------------------------------------------------------------------
@@ -755,7 +760,7 @@ class hotboxManager(QtGui.QWidget):
             encodedArchive = b64encode(archiveContent)
 
             #save to clipboard
-            QtGui.QApplication.clipboard().setText(encodedArchive)
+            QtWidgets.QApplication.clipboard().setText(encodedArchive)
 
         else:
             #save to file
@@ -851,7 +856,7 @@ class hotboxManager(QtGui.QWidget):
 
             from base64 import b64decode
 
-            encodedArchive = QtGui.QApplication.clipboard().text()
+            encodedArchive = QtWidgets.QApplication.clipboard().text()
             decodedArchive = b64decode(encodedArchive)
 
             archive = open(archiveLocation,'w')
@@ -982,7 +987,7 @@ class hotboxManager(QtGui.QWidget):
 #Classes List
 #------------------------------------------------------------------------------------------------------
 
-class QListWidgetCustom(QtGui.QListWidget):
+class QListWidgetCustom(QtWidgets.QListWidget):
 
     def __init__(self, parentClass):
         super(QListWidgetCustom, self).__init__()
@@ -1012,7 +1017,7 @@ class QListWidgetCustom(QtGui.QListWidget):
 #Color Swatch
 #------------------------------------------------------------------------------------------------------
 
-class colorSwatch(QtGui.QLabel):
+class colorSwatch(QtWidgets.QLabel):
 
     #signals
     save = QtCore.Signal()
@@ -1111,7 +1116,7 @@ class colorSwatch(QtGui.QLabel):
         if self.enabled and self.active:
 
             #Control key pressed
-            if QtGui.QApplication.keyboardModifiers() == QtCore.Qt.ShiftModifier:
+            if QtWidgets.QApplication.keyboardModifiers() == QtCore.Qt.ShiftModifier:
 
                 #left click
                 if event.button() == QtCore.Qt.LeftButton:
@@ -1122,7 +1127,7 @@ class colorSwatch(QtGui.QLabel):
                     self.copyColorInterface()
 
             #Control key pressed
-            elif QtGui.QApplication.keyboardModifiers() == QtCore.Qt.ControlModifier:
+            elif QtWidgets.QApplication.keyboardModifiers() == QtCore.Qt.ControlModifier:
 
                 #left click
                 if event.button() == QtCore.Qt.LeftButton:
@@ -1302,7 +1307,7 @@ class colorSwatch(QtGui.QLabel):
         Copy current color to clipboard
         '''
 
-        QtGui.QApplication.clipboard().setText(self.color)
+        QtWidgets.QApplication.clipboard().setText(self.color)
 
     def copyColorInterface(self):
         '''
@@ -1313,14 +1318,14 @@ class colorSwatch(QtGui.QLabel):
         rgbColor = W_hotbox.hex2rgb(self.color)
         color = str(W_hotbox.rgb2interface(rgbColor))
 
-        QtGui.QApplication.clipboard().setText(color)
+        QtWidgets.QApplication.clipboard().setText(color)
 
     def pasteColorHex(self):
         '''
         Paste color from clipboard
         '''
 
-        color = QtGui.QApplication.clipboard().text()
+        color = QtWidgets.QApplication.clipboard().text()
 
         #check if clipboard content is a color formatted as a 32 bit value as used by nuke for interface colors.
         #if so, convert to hex
@@ -1384,7 +1389,7 @@ class colorSwatch(QtGui.QLabel):
 #File Name
 #------------------------------------------------------------------------------------------------------
 
-class scriptEditorNameWidget(QtGui.QLineEdit):
+class scriptEditorNameWidget(QtWidgets.QLineEdit):
     '''
     Subclassed QLineEdit.
     Added some functionality to check whether the text was changed and to save.
@@ -1429,13 +1434,13 @@ class scriptEditorNameWidget(QtGui.QLineEdit):
 
         self.savedText = text
         #keep default behaviour
-        QtGui.QLineEdit.setText(self,text)
+        QtWidgets.QLineEdit.setText(self,text)
 
 #------------------------------------------------------------------------------------------------------
 #Script Editor
 #------------------------------------------------------------------------------------------------------
 
-class scriptEditorWidget(QtGui.QPlainTextEdit):
+class scriptEditorWidget(QtWidgets.QPlainTextEdit):
     '''
     Script editor widget.
     '''
@@ -1471,7 +1476,7 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
         '''
 
         #inherit default behaviour
-        QtGui.QPlainTextEdit.focusOutEvent(self, event)
+        QtWidgets.QPlainTextEdit.focusOutEvent(self, event)
 
         self.highlightCurrentLine()
 
@@ -1501,14 +1506,14 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
         #if BackSpace try to snap to previous indent level
         elif event.key() == 16777219:
             if not self.unindentBackspace():
-                QtGui.QPlainTextEdit.keyPressEvent(self, event)
+                QtWidgets.QPlainTextEdit.keyPressEvent(self, event)
 
         #if enter or return, match indent level
         elif event.key() in [16777220 ,16777221]:
-            #QtGui.QPlainTextEdit.keyPressEvent(self, event)
+            #QtWidgets.QPlainTextEdit.keyPressEvent(self, event)
             self.indentNewLine()
         else:
-            QtGui.QPlainTextEdit.keyPressEvent(self, event)
+            QtWidgets.QPlainTextEdit.keyPressEvent(self, event)
 
      #--------------------------------------------------------------------------------------------------
 
@@ -1567,7 +1572,7 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
             self.updateLineNumberAreaWidth()
 
     def resizeEvent(self, event):
-        QtGui.QPlainTextEdit.resizeEvent(self, event)
+        QtWidgets.QPlainTextEdit.resizeEvent(self, event)
 
         cr = self.contentsRect()
         self.lineNumberArea.setGeometry(QtCore.QRect(cr.left(), cr.top(), self.lineNumberAreaWidth(), cr.height()))
@@ -1779,7 +1784,7 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
         '''
         extraSelections = []
 
-        selection = QtGui.QTextEdit.ExtraSelection()
+        selection = QtWidgets.QTextEdit.ExtraSelection()
 
         lineColor = QtGui.QColor(88, 88, 88, 255)
 
@@ -1795,7 +1800,7 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
 
         self.setExtraSelections(extraSelections)
 
-class LineNumberArea(QtGui.QWidget):
+class LineNumberArea(QtWidgets.QWidget):
     def __init__(self, scriptEditor):
         super(LineNumberArea, self).__init__(scriptEditor)
 
@@ -1952,7 +1957,7 @@ class scriptEditorHighlighter(QtGui.QSyntaxHighlighter):
 #Template Button
 #------------------------------------------------------------------------------------------------------
 
-class scriptEditorTemplateMenu(QtGui.QMenu):
+class scriptEditorTemplateMenu(QtWidgets.QMenu):
 
     def __init__(self, parentObject):
 
@@ -2015,7 +2020,7 @@ class scriptEditorTemplateMenu(QtGui.QMenu):
                     name = name[:maxNameLength - 3] + '...'
 
                 #create new QMenu
-                menu = QtGui.QMenu()
+                menu = QtWidgets.QMenu()
                 menu.setTitle(name)
 
                 #add QMenu to parent
@@ -2031,7 +2036,7 @@ class scriptEditorTemplateMenu(QtGui.QMenu):
         '''
 
         #create new QAction
-        action = QtGui.QAction(parent)
+        action = QtWidgets.QAction(parent)
         action.setText(name)
 
         #bind function
@@ -2107,7 +2112,7 @@ class scriptEditorTemplateMenu(QtGui.QMenu):
 #Tree View
 #------------------------------------------------------------------------------------------------------
 
-class QTreeViewCustom(QtGui.QTreeView):
+class QTreeViewCustom(QtWidgets.QTreeView):
     def __init__(self, parentClass):
 
         super(QTreeViewCustom,self).__init__()
@@ -2125,7 +2130,7 @@ class QTreeViewCustom(QtGui.QTreeView):
         self.root = self.dataModel.invisibleRootItem()
 
         self.setModel(self.dataModel)
-        self.setSelectionMode(QtGui.QAbstractItemView.SelectionMode.SingleSelection)
+        self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
 
         #to check whether the tree was populated from scratch of updated
         self.scope = ''
@@ -2694,7 +2699,7 @@ class QStandardItemChild(QtGui.QStandardItem):
         if parentObject != None:
             self.currentGuiPath = parentObject.path
 
-class QLabelButton(QtGui.QLabel):
+class QLabelButton(QtWidgets.QLabel):
     '''
     Custom class to make a Qlabel function as a button.
     '''
@@ -2780,7 +2785,7 @@ class QLabelButton(QtGui.QLabel):
 #rename  dialog
 #------------------------------------------------------------------------------------------------------
 
-class renameDialog(QtGui.QDialog):
+class renameDialog(QtWidgets.QDialog):
     '''
     Dialog that will pop up when the rename button in the manager is clicked.
     '''
@@ -2807,15 +2812,15 @@ class renameDialog(QtGui.QDialog):
             self.setWindowTitle('Rename class')
 
         #layout
-        masterLayout = QtGui.QVBoxLayout()
-        buttonsLayout = QtGui.QHBoxLayout()
+        masterLayout = QtWidgets.QVBoxLayout()
+        buttonsLayout = QtWidgets.QHBoxLayout()
 
-        self.newNameLineEdit = QtGui.QLineEdit()
+        self.newNameLineEdit = QtWidgets.QLineEdit()
         self.newNameLineEdit.setText(self.currentName)
         self.newNameLineEdit.selectAll()
 
-        renameButton = QtGui.QPushButton(renameButtonLabel)
-        cancelButton = QtGui.QPushButton('Cancel')
+        renameButton = QtWidgets.QPushButton(renameButtonLabel)
+        cancelButton = QtWidgets.QPushButton('Cancel')
 
         renameButton.clicked.connect(self.renameButtonClicked)
         cancelButton.clicked.connect(self.cancelRenameDialog)
@@ -2828,14 +2833,14 @@ class renameDialog(QtGui.QDialog):
         self.setLayout(masterLayout)
 
         #shortcuts
-        self.enterAction = QtGui.QAction(self)
-        self.enterAction.setShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Return))
+        self.enterAction = QtWidgets.QAction(self)
+        self.enterAction.setShortcut(QtWidgets.QKeySequence(QtCore.Qt.Key_Return))
         self.enterAction.triggered.connect(self.renameButtonClicked)
         self.addAction(self.enterAction)
 
         #move to screen center
         self.adjustSize()
-        screenRes = QtGui.QDesktopWidget().screenGeometry()
+        screenRes = QtWidgets.QDesktopWidget().screenGeometry()
         self.move(QtCore.QPoint(screenRes.width()/2,screenRes.height()/2)-QtCore.QPoint((self.width()/2),(self.height()/2)))
 
     def renameButtonClicked(self):
@@ -2878,7 +2883,7 @@ class renameDialog(QtGui.QDialog):
 #Dialog with contact informaton
 #------------------------------------------------------------------------------------------------------
 
-class aboutDialog(QtGui.QFrame):
+class aboutDialog(QtWidgets.QFrame):
     '''
     Dialog that will show some information about the current version of the Hotbox.
     '''
@@ -2892,21 +2897,21 @@ class aboutDialog(QtGui.QFrame):
         self.setFixedHeight(250)
         self.setFixedWidth(230)
 
-        self.setFrameStyle(QtGui.QFrame.Plain | QtGui.QFrame.StyledPanel)
+        self.setFrameStyle(QtWidgets.QFrame.Plain | QtWidgets.QFrame.StyledPanel)
 
         #logo
-        aboutHotbox = QtGui.QLabel()
+        aboutHotbox = QtWidgets.QLabel()
         aboutIcon = preferencesNode.knob('hotboxIconLocation').value().replace('\\','/') + '/icon.png'
         aboutIcon = aboutIcon.replace('//icon.png','/icon.png')
         aboutHotbox.setPixmap(QtGui.QPixmap(aboutIcon))
 
         # version
-        aboutVersion = QtGui.QLabel(version)
-        aboutDate = QtGui.QLabel(releaseDate)
+        aboutVersion = QtWidgets.QLabel(version)
+        aboutDate = QtWidgets.QLabel(releaseDate)
 
         #clickable links
         aboutDownload = QWebLink('Nukepedia','http://www.nukepedia.com/python/ui/w_hotbox/')
-        aboutName = QtGui.QLabel('Wouter Gilsing')
+        aboutName = QtWidgets.QLabel('Wouter Gilsing')
         aboutMail = QWebLink('woutergilsing@hotmail.com','mailto:woutergilsing@hotmail.com?body=')
         aboutWeb = QWebLink('woutergilsing.com','http://www.woutergilsing.com')
 
@@ -2922,7 +2927,7 @@ class aboutDialog(QtGui.QFrame):
             label.setFont(smallFont)
 
         #assemble interface
-        masterLayout = QtGui.QVBoxLayout()
+        masterLayout = QtWidgets.QVBoxLayout()
 
         masterLayout.addWidget(aboutHotbox)
 
@@ -2940,7 +2945,7 @@ class aboutDialog(QtGui.QFrame):
 
         #move to screen center
         self.adjustSize()
-        screenRes = QtGui.QDesktopWidget().screenGeometry()
+        screenRes = QtWidgets.QDesktopWidget().screenGeometry()
         self.move(QtCore.QPoint(screenRes.width()/2,screenRes.height()/2)-QtCore.QPoint((self.width()/2),(self.height()/2)))
 
     def mouseReleaseEvent(self,event):
@@ -2954,7 +2959,7 @@ class aboutDialog(QtGui.QFrame):
         Wrap label/Weblink in a layout, to make sure it will be aligned properly and only the actual text is clickable.
         '''
 
-        layout = QtGui.QHBoxLayout()
+        layout = QtWidgets.QHBoxLayout()
         layout.addWidget(weblink)
 
         if alignment:
@@ -2965,7 +2970,7 @@ class aboutDialog(QtGui.QFrame):
         return layout
 
 
-class QWebLink(QtGui.QLabel):
+class QWebLink(QtWidgets.QLabel):
     def __init__(self, name, link):
         super(QWebLink, self).__init__()
 
