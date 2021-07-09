@@ -1,13 +1,11 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-version = '1.7'
-releaseDate = 'June 26 2017'
+version = '1.8'
+releaseDate = 'April 23 2018'
 
 #----------------------------------------------------------------------------------------------------------
-#
 #LICENSE
-#
 #----------------------------------------------------------------------------------------------------------
 
 '''
@@ -37,6 +35,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 '''
 
 #----------------------------------------------------------------------------------------------------------
+#modules
+#----------------------------------------------------------------------------------------------------------
 
 import nuke
 
@@ -60,15 +60,16 @@ operatingSystem = platform.system()
 
 #----------------------------------------------------------------------------------------------------------
 
-class hotbox(QtWidgets.QWidget):
+class Hotbox(QtWidgets.QWidget):
     '''
     The main class for the hotbox
     '''
 
     def __init__(self, subMenuMode = False, path = '', name = '', position = ''):
-        super(hotbox, self).__init__()
+        super(Hotbox, self).__init__()
 
         self.active = True
+        self.activeButton = None
 
         self.triggerMode = preferencesNode.knob('hotboxTriggerDropdown').getValue()
 
@@ -78,25 +79,25 @@ class hotbox(QtWidgets.QWidget):
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
 
         #enable transparency on Linux
-
-        if operatingSystem not in ['Darwin','Windows']:
+        if operatingSystem not in ['Darwin','Windows'] and nuke.NUKE_VERSION_MAJOR < 11:
             self.setAttribute(QtCore.Qt.WA_PaintOnScreen)
 
         masterLayout = QtWidgets.QVBoxLayout()
         self.setLayout(masterLayout)
 
-        self.selection = nuke.selectedNodes()
-
+        #--------------------------------------------------------------------------------------------------
+        #context
+        #--------------------------------------------------------------------------------------------------
+   
+        self.selection = nuke.selectedNodes()   
 
         #check whether selection in group
         self.groupRoot = 'root'
 
-        if len(self.selection) != 0:
+        if self.selection:
             nodeRoot = self.selection[0].fullName()
-            if nodeRoot.count('.') > 0:
-                self.groupRoot = '.'.join(nodeRoot.split('.')[:-1])
-
-        self.activeButton = None
+            if nodeRoot.count('.'):
+                self.groupRoot = '.'.join([self.groupRoot] + nodeRoot.split('.')[:-1])
 
         #--------------------------------------------------------------------------------------------------
         #main hotbox
@@ -104,33 +105,29 @@ class hotbox(QtWidgets.QWidget):
 
         if not subMenuMode:
 
+            self.mode = 'Single'
+
             if len(self.selection) > 1:
-
-                if len(list(set([i.Class() for i in nuke.selectedNodes()]))) == 1:
-                    self.mode = 'Single'
-                else:
+                if len(list(set([node.Class() for node in nuke.selectedNodes()]))) > 1:
                     self.mode = 'Multiple'
-
-            else:
-                self.mode = 'Single'
 
             #Layouts
             centerLayout = QtWidgets.QHBoxLayout()
-
             centerLayout.addStretch()
-            centerLayout.addWidget(hotboxButton('Reveal in %s'%getFileBrowser(),'revealInBrowser()'))
+            centerLayout.addWidget(HotboxButton('Reveal in %s'%getFileBrowser(),'revealInBrowser()'))
             centerLayout.addSpacing(25)
-            centerLayout.addWidget(hotboxCenter())
+            centerLayout.addWidget(HotboxCenter())
             centerLayout.addSpacing(25)
-            centerLayout.addWidget(hotboxButton('Hotbox Manager','showHotboxManager()'))
+            centerLayout.addWidget(HotboxButton('Hotbox Manager','showHotboxManager()'))
             centerLayout.addStretch()
 
-            self.topLayout = nodeButtons()
-            self.bottomLayout = nodeButtons('bottom')
+            self.topLayout = NodeButtons()
+            self.bottomLayout = NodeButtons('bottom')
+
             spacing = 12
 
         #--------------------------------------------------------------------------------------------------
-        #submenu
+        #submenu mode
         #--------------------------------------------------------------------------------------------------
 
         else:
@@ -147,23 +144,23 @@ class hotbox(QtWidgets.QWidget):
                 else:
                     lists[index%2].insert(0,item)
 
-
             #Stretch layout
             centerLayout = QtWidgets.QHBoxLayout()
 
             centerLayout.addStretch()
             for index, item in enumerate(centerItems):
-                centerLayout.addWidget(hotboxButton(item))
+                centerLayout.addWidget(HotboxButton(item))
                 if index == 0:
-                    centerLayout.addWidget(hotboxCenter(False,path))
+                    centerLayout.addWidget(HotboxCenter(False,path))
 
             if len(centerItems) == 1:
                 centerLayout.addSpacing(105)
 
             centerLayout.addStretch()
 
-            self.topLayout = nodeButtons('SubMenuTop',lists[0])
-            self.bottomLayout = nodeButtons('SubMenuBottom',lists[1])
+            self.topLayout = NodeButtons('SubMenuTop',lists[0])
+            self.bottomLayout = NodeButtons('SubMenuBottom',lists[1])
+
             spacing = 0
 
         #--------------------------------------------------------------------------------------------------
@@ -214,6 +211,9 @@ class hotbox(QtWidgets.QWidget):
     def closeHotbox(self, hotkey = False):
 
         #if the execute on close function is turned on, the hotbox will execute the selected button upon close
+
+        
+        
         if hotkey:
             if preferencesNode.knob('hotboxExecuteOnClose').value():
                 if self.activeButton != None:
@@ -257,15 +257,15 @@ class hotbox(QtWidgets.QWidget):
 #Button field
 #----------------------------------------------------------------------------------------------------------
 
-class nodeButtons(QtWidgets.QVBoxLayout):
+class NodeButtons(QtWidgets.QVBoxLayout):
     '''
     Create QLayout filled with buttons
     '''
+
     def __init__(self, mode = '', allItems = ''):
-        super(nodeButtons, self).__init__()
+        super(NodeButtons, self).__init__()
 
         selectedNodes = nuke.selectedNodes()
-        mirrored = True
 
         #--------------------------------------------------------------------------------------------------
         #submenu
@@ -274,14 +274,21 @@ class nodeButtons(QtWidgets.QVBoxLayout):
         if 'submenu' in mode.lower():
 
             self.rowMaxAmount = 3
-            if 'top' in mode.lower():
-                mirrored = False
+            mirrored = ('top' not in mode.lower())
 
         #--------------------------------------------------------------------------------------------------
         #main hotbox
         #--------------------------------------------------------------------------------------------------
 
         else:
+
+            mirrored = True
+
+            mode = (mode == 'bottom')
+
+            if preferencesNode.knob('hotboxMirroredLayout').value():
+                mode = 1 - mode
+                mirrored = 1 - mirrored
 
             self.path = preferencesNode.knob('hotboxLocation').value().replace('\\','/')
             if self.path[-1] != '/':
@@ -293,88 +300,161 @@ class nodeButtons(QtWidgets.QVBoxLayout):
 
             self.folderList = []
             
+            #----------------------------------------------------------------------------------------------
+            #noncontextual
+            #----------------------------------------------------------------------------------------------
+
+            if mode:
+
+                self.folderList += [repository + 'All' for repository in self.allRepositories]
+
+            #----------------------------------------------------------------------------------------------
+            #contextual
+            #----------------------------------------------------------------------------------------------
             
-            if mode == 'bottom':
-
-                for repository in self.allRepositories:
-                    self.folderList.append(repository + 'All/')
-
             else:
-                mirrored = False
+
+                mirrored = 1 - mirrored
+
                 self.rowMaxAmount = int(preferencesNode.knob('hotboxRowAmountSelection').value())
 
-                nodeClasses = list(set([node.Class() for node in selectedNodes]))
+                #------------------------------------------------------------------------------------------
+                #rules
+                #------------------------------------------------------------------------------------------
 
-                if len(nodeClasses) == 0:
-                    nodeClasses = ['No Selection']
+                #collect all folders storing buttons for applicable rules
 
-                else:
+                ignoreClasses = False
+                tag = '# IGNORE CLASSES: '
 
-                    #check if group, if so take the name of the group, as well as the class
-                    groupNodes = []
-                    if 'Group' in nodeClasses:
-                        for node in selectedNodes:
-                            if node.Class() == 'Group':
-                                groupName = node.name()
-                                while groupName[-1] in [str(i) for i in range(10)]:
-                                    groupName = groupName[:-1]
-                                if groupName not in groupNodes and groupName != 'Group':
-                                    groupNodes.append(groupName)
-
-                    if len(groupNodes) > 0:
-                        groupNodes = [nodeClass for nodeClass in nodeClasses if nodeClass != 'Group'] + groupNodes
-
-                    if len(nodeClasses) > 1:
-                        nodeClasses = [nodeClasses]
-                    if len(groupNodes) > 1:
-                        groupNodes = [groupNodes]
-
-                    nodeClasses = nodeClasses + groupNodes
-
-                '''
-                Check which defined class combinations on disk are applicable to the current selection.
-                '''
+                allRulePaths = []
 
                 for repository in self.allRepositories:
-                    for nodeClass in nodeClasses:
-                        if isinstance(nodeClass,list):
+                    
+                    rulesFolder = repository + 'Rules'
+                    if not os.path.exists(rulesFolder):
+                        continue
 
-                            for managerNodeClasses in [i for i in os.listdir(repository + 'Multiple') if i[0] not in ['_','.']]:
-                                managerNodeClassesList = managerNodeClasses.split('-')
-                                match = list(set(nodeClass).intersection(managerNodeClassesList))
+                    rules = ['/'.join([rulesFolder,rule]) for rule in os.listdir(rulesFolder) if rule[0] not in ['_','.'] and rule[-1] != '_']
 
-                                if len(match) >= len(nodeClass):
-                                    self.folderList.append(repository + 'Multiple/' + managerNodeClasses)
-                        else:
-                            self.folderList.append(repository + 'Single/' + nodeClass)
+                    #validate rules
+                    for rule in rules:
+
+                        ruleFile = rule + '/_rule.py'
+
+                        if os.path.exists(ruleFile):
+
+                            if self.validateRule(ruleFile):
+                                allRulePaths.append(rule)
+
+                                #read ruleFile to check if ignoreClasses was enabled.
+                                if not ignoreClasses:
+                            
+                                    for line in open(ruleFile).readlines():
+                                        #no point in checking boyond the header
+                                        if not line.startswith('#'):
+                                            break
+                                        #if proper tag is found, check its value
+                                        if line.startswith(tag):
+                                            ignoreClasses = bool(int(line.split(tag)[-1].replace('\n','')))
+                                            break
+
+                #------------------------------------------------------------------------------------------
+                #classes
+                #------------------------------------------------------------------------------------------
+
+                #collect all folders storing buttons for applicable classes
+                
+                if not ignoreClasses:
+
+                    allClassPaths = []
+
+                    nodeClasses = list(set([node.Class() for node in selectedNodes]))
+
+                    #if nothing selected
+                    if len(nodeClasses) == 0:
+                        nodeClasses = ['No Selection']
+
+                    #if selection
+                    else:
+                        #check if group, if so take the name of the group, as well as the class
+                        groupNodes = []
+                        if 'Group' in nodeClasses:
+                            for node in selectedNodes:
+                                if node.Class() == 'Group':
+                                    groupName = node.name()
+                                    while groupName[-1] in [str(i) for i in range(10)]:
+                                        groupName = groupName[:-1]
+                                    if groupName not in groupNodes and groupName != 'Group':
+                                        groupNodes.append(groupName)
+
+                        if len(groupNodes) > 0:
+                            groupNodes = [nodeClass for nodeClass in nodeClasses if nodeClass != 'Group'] + groupNodes
+
+                        if len(nodeClasses) > 1:
+                            nodeClasses = [nodeClasses]
+                        if len(groupNodes) > 1:
+                            groupNodes = [groupNodes]
+
+                        nodeClasses = nodeClasses + groupNodes
+
+                    #Check which defined class combinations on disk are applicable to the current selection.
+                    for repository in self.allRepositories:
+                        for nodeClass in nodeClasses:
+
+                            if isinstance(nodeClass, list):
+                                for managerNodeClasses in [i for i in os.listdir(repository + 'Multiple') if i[0] not in ['_','.']]:
+                                    managerNodeClassesList = managerNodeClasses.split('-')
+                                    match = list(set(nodeClass).intersection(managerNodeClassesList))
+
+                                    if len(match) >= len(nodeClass):
+                                        allClassPaths.append(repository + 'Multiple/' + managerNodeClasses)
+                            else:
+                                allClassPaths.append(repository + 'Single/' + nodeClass)
+
+                    allClassPaths = list(set(allClassPaths))
+                    allClassPaths = [path for path in allClassPaths if os.path.exists(path)]
+
+                #------------------------------------------------------------------------------------------
+                #combine classes and rules
+                #------------------------------------------------------------------------------------------
+                
+                if ignoreClasses:
+                    self.folderList = allRulePaths
+
+                else:
+                    self.folderList =  allClassPaths + allRulePaths
+
+                    if preferencesNode.knob('hotboxRuleClassOrder').getValue():
+                        self.folderList.reverse()
+
+            #----------------------------------------------------------------------------------------------
+            #files on disk representing items
+            #----------------------------------------------------------------------------------------------
 
             allItems = []
 
-            self.folderList = list(set(self.folderList))
             for folder in self.folderList:
-                #check if path exists
-                if os.path.exists(folder):
-                    for i in sorted(os.listdir(folder)):
-                        if i[0] not in ['.','_'] and len(i) in [3,6]:
-                            if folder[-1] != '/':
-                                folder += '/'
-                            allItems.append(folder + i)
+                for file in sorted(os.listdir(folder)):
+                    if file[0] not in ['.','_'] and len(file) in [3,6]:
+                        allItems.append('/'.join([folder, file]))
 
         #--------------------------------------------------------------------------------------------------
         #devide in rows based on the row maximum
-
+        #--------------------------------------------------------------------------------------------------
+        
         allRows = []
         row = []
 
-        for i in range(len(allItems)):
-            currentItem = allItems[i]
+        for item in allItems:
             if preferencesNode.knob('hotboxButtonSpawnMode').value():
                 if len(row) %2:
-                    row.append(currentItem)
+                    row.append(item)
                 else:
-                    row.insert(0,currentItem)
+                    row.insert(0,item)
             else:
-                row.append(currentItem)
+                row.append(item)
+
             #when a row reaches its full capacity, add the row to the allRows list
             #and start a new one. Increase rowcapacity to get a triangular shape
             if len(row) == self.rowMaxAmount:
@@ -386,29 +466,65 @@ class nodeButtons(QtWidgets.QVBoxLayout):
         if len(row) != 0:
             allRows.append(row)
 
-        if mirrored:
-            rows =  allRows
-        else:
-            rows =  allRows[::-1]
+        if not mirrored:
+            allRows.reverse()
 
         #nodeHotboxLayout
-        for row in rows:
+        for row in allRows:
             self.rowLayout = QtWidgets.QHBoxLayout()
 
             self.rowLayout.addStretch()
 
             for button in row:
-                buttonObject = hotboxButton(button)
+                buttonObject = HotboxButton(button)
                 self.rowLayout.addWidget(buttonObject)
             self.rowLayout.addStretch()
 
             self.addLayout(self.rowLayout)
 
-        self.rowAmount = len(rows)
+        self.rowAmount = len(allRows)
+
+    def validateRule(self, ruleFile):
+        '''
+        Run the rule, return True or False.
+        '''
+
+        error = False
+
+        #read from file
+        ruleString = open(ruleFile).read()
+
+        #quick sanity check
+        if not 'ret=' in ruleString.replace(' ',''):
+            error = "RuleError: rule must contain variable named 'ret'"
+
+        else:
+
+            #prepend the rulestring with a nuke import statement and make it return False by default
+            prefix = 'import nuke\nret = False\n'
+            ruleString = prefix + ruleString
+
+            #run rule
+            try:
+                results = {}
+                exec(ruleString, {}, results)
+                  
+                if 'ret' in results.keys():
+                    result = bool(results['ret'])
+            except:
+                error = traceback.format_exc()
+
+        #run error
+        if error:
+            printError(error, buttonName = os.path.basename(os.path.dirname(ruleFile)), rule = True)
+            result = False
+
+        #return the result of the rule
+        return result
 
 #----------------------------------------------------------------------------------------------------------
 
-class hotboxCenter(QtWidgets.QLabel):
+class HotboxCenter(QtWidgets.QLabel):
     '''
     Center button of the hotbox.
     If the 'color nodes' is set to True in the preferences panel, the button will take over the color and
@@ -417,7 +533,7 @@ class hotboxCenter(QtWidgets.QLabel):
     '''
 
     def __init__(self, node = True, name = ''):
-        super ( hotboxCenter ,self ).__init__()
+        super(HotboxCenter, self).__init__()
 
         self.node = node
 
@@ -427,7 +543,6 @@ class hotboxCenter(QtWidgets.QLabel):
         selectedNodes = nuke.selectedNodes()
 
         if node:
-
             #if no node selected
             if len(selectedNodes) == 0:
                 name = 'W_hotbox'
@@ -496,6 +611,9 @@ class hotboxCenter(QtWidgets.QLabel):
         return True
 
     def leaveEvent(self,event):
+        '''
+        Change color of the button when the mouse starts hovering over it
+        '''
         if not self.node:
             self.setSelectionStatus()
         return True
@@ -512,14 +630,14 @@ class hotboxCenter(QtWidgets.QLabel):
 #Buttons
 #----------------------------------------------------------------------------------------------------------
 
-class hotboxButton(QtWidgets.QLabel):
+class HotboxButton(QtWidgets.QLabel):
     '''
     Button class
     '''
 
     def __init__(self, name, function = None):
 
-        super(hotboxButton, self).__init__()
+        super(HotboxButton, self).__init__()
 
         self.menuButton = False
         self.filePath = name
@@ -613,58 +731,18 @@ class hotboxButton(QtWidgets.QLabel):
         '''
         Execute script attached to button
         '''
+
         with nuke.toNode(hotboxInstance.groupRoot):
+
             try:
                 exec self.function
             except:
-                self.printError(traceback.format_exc())
+                printError(traceback.format_exc(), self.filePath, self.text())
 
         #if 'close on click' is ticked, close the hotbox
         if not self.menuButton:
             if preferencesNode.knob('hotboxCloseOnClick').value() and preferencesNode.knob('hotboxTriggerDropdown').getValue():
                 hotboxInstance.closeHotbox()
-
-    def printError(self, error):
-
-        fullError = error.splitlines()
-
-        lineNumber = 'error determining line'
-
-        for index, line in enumerate(reversed(fullError)):
-            if line.startswith('  File "<'):
-
-                for i in line.split(','):
-                    if i.startswith(' line '):
-                        lineNumber = i
-
-                index = len(fullError)-index
-                break
-
-        fullError = fullError[index:]
-
-        errorDescription = '\n'.join(fullError)
-
-        scriptFolder = os.path.dirname(self.filePath)
-        scriptFolderName = os.path.basename(scriptFolder)
-
-        buttonName = [self.text()]
-
-        while len(scriptFolderName) == 3 and scriptFolderName.isdigit():
-
-            name = open(scriptFolder+'/_name.json').read()
-            buttonName.insert(0, name)
-            scriptFolder = os.path.dirname(scriptFolder)
-            scriptFolderName = os.path.basename(scriptFolder)
-
-        for i in range(2):
-            buttonName.insert(0, os.path.basename(scriptFolder))
-            scriptFolder = os.path.dirname(scriptFolder)
-
-        hotboxError = '\nW_HOTBOX ERROR: %s -%s:\n\n%s'%('/'.join(buttonName),lineNumber,errorDescription)
-
-        #print error
-        print hotboxError
-        nuke.tprint(hotboxError)
 
     def setSelectionStatus(self, selected = False):
         '''
@@ -723,10 +801,12 @@ class hotboxButton(QtWidgets.QLabel):
         Execute the buttons' self.function (str)
         '''
         if self.selected:
+
             nuke.Undo().name(self.text())
             nuke.Undo().begin()
 
             self.invokeButton()
+            
             nuke.Undo().end()
 
         return True
@@ -796,181 +876,217 @@ def addPreferences():
     Add knobs to the preferences needed for this module to work properly.
     '''
     
-    homeFolder = os.getenv('HOME').replace('\\','/') + '/.nuke'
-    
     addToPreferences(nuke.Tab_Knob('hotboxLabel','W_hotbox'))
     addToPreferences(nuke.Text_Knob('hotboxGeneralLabel','<b>General</b>'))
 
     #version knob to check whether the hotbox was updated
-    versionKnob = nuke.String_Knob('hotboxVersion','version')
-    versionKnob.setValue(version)
-    addToPreferences(versionKnob)
+    knob = nuke.String_Knob('hotboxVersion','version')
+    knob.setValue(version)
+    addToPreferences(knob)
     preferencesNode.knob('hotboxVersion').setVisible(False)
 
     #location knob
-    locationKnob = nuke.File_Knob('hotboxLocation','Hotbox location')
+    knob = nuke.File_Knob('hotboxLocation','Hotbox location')
 
     tooltip = "The folder on disk the Hotbox uses to store the Hotbox buttons. Make sure this path links to the folder containing the 'All','Single' and 'Multiple' folders."
 
-    locationKnobAdded = addToPreferences(locationKnob, tooltip)
-
-    if locationKnobAdded != None:
-        locationKnob.setValue(homeFolder + '/W_hotbox')
+    locationKnobAdded = addToPreferences(knob, tooltip)
 
     #icons knob
-    iconLocationKnob = nuke.File_Knob('hotboxIconLocation','Icons location')
-    iconLocationKnob.setValue(homeFolder +'/icons/W_hotbox')
+    knob = nuke.File_Knob('hotboxIconLocation','Icons location')
+    knob.setValue(homeFolder +'/icons/W_hotbox')
 
     tooltip = "The folder on disk the where the Hotbox related icons are stored. Make sure this path links to the folder containing the PNG files."
-    addToPreferences(iconLocationKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     #open manager button
-    openManagerKnob = nuke.PyScript_Knob('hotboxOpenManager','open hotbox manager','W_hotboxManager.showHotboxManager()')
-    openManagerKnob.setFlag(nuke.STARTLINE)
+    knob = nuke.PyScript_Knob('hotboxOpenManager','open hotbox manager','W_hotboxManager.showHotboxManager()')
+    knob.setFlag(nuke.STARTLINE)
 
     tooltip = "Open the Hotbox Manager."
 
-    addToPreferences(openManagerKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     #open in file system button knob
-    openFolderKnob = nuke.PyScript_Knob('hotboxOpenFolder','open hotbox folder','W_hotbox.revealInBrowser(True)')
+    knob = nuke.PyScript_Knob('hotboxOpenFolder','open hotbox folder','W_hotbox.revealInBrowser(True)')
 
     tooltip = "Open the folder containing the files that store the Hotbox buttons. It's advised not to mess around in this folder unless you understand what you're doing."
 
-    addToPreferences(openFolderKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     #delete preferences button knob
-    deletePreferencesKnob = nuke.PyScript_Knob('hotboxDeletePreferences','delete preferences','W_hotbox.deletePreferences()')
+    knob = nuke.PyScript_Knob('hotboxDeletePreferences','delete preferences','W_hotbox.deletePreferences()')
 
     tooltip = "Delete all the Hotbox related knobs from the Preferences Panel. After clicking this button the Preferences Panel should be closed by clicking the 'cancel' button."
 
-    addToPreferences(deletePreferencesKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     #Launch Label knob
     addToPreferences(nuke.Text_Knob('hotboxLaunchLabel','<b>Launch</b>'))
 
     #shortcut knob
-    shortcutKnob = nuke.String_Knob('hotboxShortcut','Shortcut')
-    shortcutKnob.setValue('`')
+    knob = nuke.String_Knob('hotboxShortcut','Shortcut')
+    knob.setValue('`')
 
-    tooltip = "The key that triggers the Hotbox. Should be set to a single key without any modifier keys. Spacebar can be defined as 'space'. Nuke needs be restarted in order for the changes to take effect."
+    tooltip = ("The key that triggers the Hotbox. Should be set to a single key without any modifier keys. "
+                "Spacebar can be defined as 'space'. Nuke needs be restarted in order for the changes to take effect.")
 
-    addToPreferences(shortcutKnob, tooltip)
+    addToPreferences(knob, tooltip)
     global shortcut
     shortcut = preferencesNode.knob('hotboxShortcut').value()
 
+    #reset shortcut knob
+    knob = nuke.PyScript_Knob('hotboxResetShortcut','set', 'W_hotbox.resetMenuItems()')
+    knob.clearFlag(nuke.STARTLINE)
+    tooltip = "Apply new shortcut."
+
+    addToPreferences(knob, tooltip)
+
     #trigger mode knob
-    triggerDropdownKnob = nuke.Enumeration_Knob('hotboxTriggerDropdown', 'Launch mode',['Press and Hold','Single Tap'])
+    knob = nuke.Enumeration_Knob('hotboxTriggerDropdown', 'Launch mode',['Press and Hold','Single Tap'])
 
-    tooltip = "The way the hotbox is launched. When set to 'Press and Hold' the Hotbox will appear whenever the shortcut is pressed and disappear as soon as the user releases the key. When set to 'Single Tap' the shortcut will toggle the Hotbox on and off."
+    tooltip = ("The way the hotbox is launched. When set to 'Press and Hold' the Hotbox will appear whenever the shortcut is pressed and disappear as soon as the user releases the key. "
+                "When set to 'Single Tap' the shortcut will toggle the Hotbox on and off.")
 
-    addToPreferences(triggerDropdownKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     #close on click
-    closeAfterClickKnob = nuke.Boolean_Knob('hotboxCloseOnClick','Close on button click')
-    closeAfterClickKnob.setValue(False)
-    closeAfterClickKnob.clearFlag(nuke.STARTLINE)
+    knob = nuke.Boolean_Knob('hotboxCloseOnClick','Close on button click')
+    knob.setValue(False)
+    knob.clearFlag(nuke.STARTLINE)
 
     tooltip = "Close the Hotbox whenever a button is clicked (excluding submenus obviously). This option will only take effect when the launch mode is set to 'Single Tap'."
 
-    addToPreferences(closeAfterClickKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     #execute on close
-    executeWithoutClickKnob = nuke.Boolean_Knob('hotboxExecuteOnClose','Execute button without click')
-    executeWithoutClickKnob.setValue(False)
-    executeWithoutClickKnob.clearFlag(nuke.STARTLINE)
+    knob = nuke.Boolean_Knob('hotboxExecuteOnClose','Execute button without click')
+    knob.setValue(False)
+    knob.clearFlag(nuke.STARTLINE)
 
     tooltip = "Execute the button underneath the cursor whenever the Hotbox is closed."
 
-    addToPreferences(executeWithoutClickKnob, tooltip)
+    addToPreferences(knob, tooltip)
+
+    #Rule/Class order
+    knob = nuke.Enumeration_Knob('hotboxRuleClassOrder', 'Order',['Class - Rule', 'Rule - Class'])
+    tooltip = "The order in which the buttons will be loaded."
+
+    addToPreferences(knob, tooltip)
+
+    #Manager startup default
+    knob = nuke.Enumeration_Knob('hotboxOpenManagerOptions', 'Manager startup default',['Contextual','All','Rules', 'Contextual/All', 'Contextual/Rules'])
+    knob.clearFlag(nuke.STARTLINE)
+
+    tooltip = ("The section of the Manager that will be opened on startup.\n"
+                "\n<b>Contextual</b> Open the 'Single' or 'Multiple' section, depending on selection."
+                "\n<b>All</b> Open the 'All' section."
+                "\n<b>Rules</b> Open the 'Rules' section."
+                "\n<b>Contextual/All</b> Contextual if the selection matches a button in the 'Single' or 'Multiple' section, otherwise the 'All' section will be opened."
+                "\n<b>Contextual/Rules</b> Contextual if the selection matches a button in the 'Single' or 'Multiple' section, otherwise the 'Rules' section will be opened.")
+
+    addToPreferences(knob, tooltip)
 
     #Appearence knob
     addToPreferences(nuke.Text_Knob('hotboxAppearanceLabel','<b>Appearance</b>'))
 
     #color dropdown knob
-    colorDropdownKnob = nuke.Enumeration_Knob('hotboxColorDropdown', 'Color scheme',['Maya','Nuke','Custom'])
+    knob = nuke.Boolean_Knob('hotboxMirroredLayout', 'Mirrored')
 
-    tooltip = "The color of the buttons when selected.\n\n<b>Maya</b> Autodesk Maya's muted blue.\n<b>Nuke</b> Nuke's bright orange.\n<b>Custom</b> which lets the user pick a color."
+    tooltip = ("By default the contextual buttons will appear at the top of the hotbox and the non contextual buttons at the bottom.")
 
-    addToPreferences(colorDropdownKnob, tooltip)
+    addToPreferences(knob, tooltip)
+
+    #color dropdown knob
+    knob = nuke.Enumeration_Knob('hotboxColorDropdown', 'Color scheme',['Maya','Nuke','Custom'])
+
+    tooltip = ("The color of the buttons when selected.\n"
+                "\n<b>Maya</b> Autodesk Maya's muted blue."
+                "\n<b>Nuke</b> Nuke's bright orange."
+                "\n<b>Custom</b> which lets the user pick a color.")
+
+    addToPreferences(knob, tooltip)
 
     #custom color knob
-    colorCustomKnob = nuke.ColorChip_Knob('hotboxColorCustom','')
-    colorCustomKnob.clearFlag(nuke.STARTLINE)
+    knob = nuke.ColorChip_Knob('hotboxColorCustom','')
+    knob.clearFlag(nuke.STARTLINE)
 
     tooltip = "The color of the buttons when selected, when the color dropdown is set to 'Custom'."
 
-    addToPreferences(colorCustomKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     #hotbox center knob
-    colorHotboxCenterKnob = nuke.Boolean_Knob('hotboxColorCenter','Colorize hotbox center')
-    colorHotboxCenterKnob.setValue(True)
-    colorHotboxCenterKnob.clearFlag(nuke.STARTLINE)
+    knob = nuke.Boolean_Knob('hotboxColorCenter','Colorize hotbox center')
+    knob.setValue(True)
+    knob.clearFlag(nuke.STARTLINE)
 
     tooltip = "Color the center button of the hotbox depending on the current selection. When unticked the center button will be colored a lighter tone of grey."
 
-    addToPreferences(colorHotboxCenterKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     #auto color text
-    autoTextColorKnob = nuke.Boolean_Knob('hotboxAutoTextColor','Auto adjust text color')
-    autoTextColorKnob.setValue(True)
-    autoTextColorKnob.clearFlag(nuke.STARTLINE)
+    knob = nuke.Boolean_Knob('hotboxAutoTextColor','Auto adjust text color')
+    knob.setValue(True)
+    knob.clearFlag(nuke.STARTLINE)
 
     tooltip = "Automatically adjust the color of a button's text to its background color in order to keep enough of a difference to remain readable."
 
-    addToPreferences(autoTextColorKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     #fontsize knob
-    fontSizeKnob = nuke.Int_Knob('hotboxFontSize','Font size')
-    fontSizeKnob.setValue(9)
+    knob = nuke.Int_Knob('hotboxFontSize','Font size')
+    knob.setValue(8)
 
     tooltip = "The font size of the text that appears in the hotbox buttons, unless defined differently on a per-button level."
 
-    addToPreferences(fontSizeKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     #fontsize manager's script editor knob
-    fontSizeScriptEditorKnob = nuke.Int_Knob('hotboxScriptEditorFontSize','Font size script editor')
-    fontSizeScriptEditorKnob.setValue(11)
-    fontSizeScriptEditorKnob.clearFlag(nuke.STARTLINE)
+    knob = nuke.Int_Knob('hotboxScriptEditorFontSize','Font size script editor')
+    knob.setValue(11)
+    knob.clearFlag(nuke.STARTLINE)
 
     tooltip = "The font size of the text that appears in the hotbox manager's script editor."
 
-    addToPreferences(fontSizeScriptEditorKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     addToPreferences(nuke.Text_Knob('hotboxItemsLabel','<b>Items per Row</b>'))
 
     #row amount selection knob
-    rowAmountSelectionKnob = nuke.Int_Knob('hotboxRowAmountSelection', 'Selection specific')
-    rowAmountSelectionKnob.setValue(3)
+    knob = nuke.Int_Knob('hotboxRowAmountSelection', 'Selection specific')
+    knob.setValue(3)
 
-    tooltip = "The maximum amount of buttons a row in the upper half of the Hotbox can contain. When the row's maximum capacity is reached a new row will be started. This new row's maximum capacity will be incremented by the step size."
+    tooltip = ("The maximum amount of buttons a row in the upper half of the Hotbox can contain. "
+                "When the row's maximum capacity is reached a new row will be started. This new row's maximum capacity will be incremented by the step size.")
 
-    addToPreferences(rowAmountSelectionKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     #row amount all knob
-    rowAmountSelectionAll = nuke.Int_Knob('hotboxRowAmountAll','All')
-    rowAmountSelectionAll.setValue(3)
+    knob = nuke.Int_Knob('hotboxRowAmountAll','All')
+    knob.setValue(3)
 
-    tooltip = "The maximum amount of buttons a row in the lower half of the Hotbox can contain. When the row's maximum capacity is reached a new row will be started.This new row's maximum capacity will be incremented by the step size."
+    tooltip = ("The maximum amount of buttons a row in the lower half of the Hotbox can contain. "
+                "When the row's maximum capacity is reached a new row will be started.This new row's maximum capacity will be incremented by the step size.")
 
-    addToPreferences(rowAmountSelectionAll, tooltip)
+    addToPreferences(knob, tooltip)
 
     #stepsize knob
-    stepSizeKnob = nuke.Int_Knob('hotboxRowStepSize','Step size')
-    stepSizeKnob.setValue(1)
+    knob = nuke.Int_Knob('hotboxRowStepSize','Step size')
+    knob.setValue(1)
 
-    tooltip = "The amount a buttons every new row's maximum capacity will be increased by. Having a number unequal to zero will result in a triangular shape when having multiple rows of buttons."
+    tooltip = ("The amount a buttons every new row's maximum capacity will be increased by. "
+                "Having a number unequal to zero will result in a triangular shape when having multiple rows of buttons.")
 
-    addToPreferences(stepSizeKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     #spawnmode knob
-    spawnModeKnob = nuke.Boolean_Knob('hotboxButtonSpawnMode','Add new buttons to the sides')
-    spawnModeKnob.setValue(True)
-    spawnModeKnob.setFlag(nuke.STARTLINE)
+    knob = nuke.Boolean_Knob('hotboxButtonSpawnMode','Add new buttons to the sides')
+    knob.setValue(True)
+    knob.setFlag(nuke.STARTLINE)
 
     tooltip = "Add new buttons left and right of the row alternately, instead of to the right, in order to preserve muscle memory."
 
-    addToPreferences(spawnModeKnob, tooltip)
+    addToPreferences(knob, tooltip)
 
     #hide the iconLocation knob if environment varible called 'W_HOTBOX_HIDE_ICON_LOC' is set to 'true' or '1'
     preferencesNode.knob('hotboxIconLocation').setVisible(True)
@@ -984,7 +1100,6 @@ def updatePreferences():
     '''
     Check whether the hotbox was updated since the last launch. If so refresh the preferences.
     '''
-
 
     allKnobs = preferencesNode.knobs().keys()
 
@@ -1126,6 +1241,7 @@ def revealInBrowser(startFolder = False):
     else:
         subprocess.Popen(["xdg-open", path])
 
+
 def getFileBrowser():
     '''
     Determine the name of the file browser on the current system.
@@ -1140,6 +1256,64 @@ def getFileBrowser():
 
     return fileBrowser
 
+#----------------------------------------------------------------------------------------------------------
+#error catching
+#----------------------------------------------------------------------------------------------------------
+
+
+def printError(error, path = '', buttonName = '', rule = False):
+    '''
+    Format error message and print it to the scripteditor and shell.
+    '''
+
+    fullError = error.splitlines()
+
+    buttonName = [buttonName]
+
+    #line number
+    lineNumber = ''
+    for index, line in enumerate(reversed(fullError)):
+
+        if line.startswith('  File "<'):
+            for i in line.split(','):
+                if i.startswith(' line '):
+                    lineNumber = i
+
+            index = len(fullError)-index
+            break
+
+    lineNumber = (' -' + lineNumber) * bool(lineNumber)
+
+    fullError = fullError[index:]
+    errorDescription = '\n'.join(fullError)
+
+    #button
+    if not rule:
+
+        scriptFolder = os.path.dirname(path)
+        scriptFolderName = os.path.basename(scriptFolder)
+
+        while len(scriptFolderName) == 3 and scriptFolderName.isdigit():
+
+            name = open(scriptFolder + '/_name.json').read()
+            buttonName.insert(0, name)
+            scriptFolder = os.path.dirname(scriptFolder)
+            scriptFolderName = os.path.basename(scriptFolder)
+
+        for i in range(2):
+            buttonName.insert(0, os.path.basename(scriptFolder))
+            scriptFolder = os.path.dirname(scriptFolder)
+
+    #buttonName = [buttonName]
+
+    hotboxError = '\nW_HOTBOX %sERROR: %s%s:\n%s'%('RULE '*int(bool(rule)), '/'.join(buttonName), lineNumber, errorDescription)
+
+    #print error
+    print hotboxError
+    nuke.tprint(hotboxError)
+
+#----------------------------------------------------------------------------------------------------------
+#launch hotbox
 #----------------------------------------------------------------------------------------------------------
 
 def showHotbox(force = False, resetPosition = True):
@@ -1161,14 +1335,14 @@ def showHotbox(force = False, resetPosition = True):
         lastPosition = ''
 
     if hotboxInstance == None or not hotboxInstance.active:
-        hotboxInstance = hotbox(position = lastPosition)
+        hotboxInstance = Hotbox(position = lastPosition)
         hotboxInstance.show()
 
 def showHotboxSubMenu(path, name):
     global hotboxInstance
     hotboxInstance.active = False
     if hotboxInstance == None or not hotboxInstance.active:
-        hotboxInstance = hotbox(True, path, name)
+        hotboxInstance = Hotbox(True, path, name)
         hotboxInstance.show()
 
 def showHotboxManager():
@@ -1179,22 +1353,62 @@ def showHotboxManager():
     W_hotboxManager.showHotboxManager()
 
 #----------------------------------------------------------------------------------------------------------
+#menu items
+#----------------------------------------------------------------------------------------------------------
 
+def addMenuItems():
+    '''
+    Add items to the Nuke menu
+    '''
+    editMenu.addCommand('W_hotbox/Open W_hotbox', showHotbox, shortcut)
+    editMenu.addCommand('W_hotbox/-', '', '')
+    editMenu.addCommand('W_hotbox/Open Hotbox Manager', 'W_hotboxManager.showHotboxManager()')
+    editMenu.addCommand('W_hotbox/Open in %s'%getFileBrowser(), revealInBrowser)
+    editMenu.addCommand('W_hotbox/-', '', '')
+    editMenu.addCommand('W_hotbox/Repair', 'W_hotboxManager.repairHotbox()')
+    editMenu.addCommand('W_hotbox/Clear/Clear Everything', 'W_hotboxManager.clearHotboxManager()')
+    editMenu.addCommand('W_hotbox/Clear/Clear Section/Single', 'W_hotboxManager.clearHotboxManager(["Single"])')
+    editMenu.addCommand('W_hotbox/Clear/Clear Section/Multiple', 'W_hotboxManager.clearHotboxManager(["Multiple"])')
+    editMenu.addCommand('W_hotbox/Clear/Clear Section/All', 'W_hotboxManager.clearHotboxManager(["All"])')
+    editMenu.addCommand('W_hotbox/Clear/Clear Section/-', '', '')
+    editMenu.addCommand('W_hotbox/Clear/Clear Section/Templates', 'W_hotboxManager.clearHotboxManager(["Templates"])')
+
+def resetMenuItems():
+    '''
+    Remove and readd all items to the Nuke menu. Used to change the shotcut
+    '''
+
+    global shortcut 
+    shortcut = preferencesNode.knob('hotboxShortcut').value()
+
+    if editMenu.findItem('W_hotbox'):
+        editMenu.removeItem('W_hotbox')
+
+    addMenuItems()
+
+#----------------------------------------------------------------------------------------------------------
 
 #add knobs to preferences
 preferencesNode = nuke.toNode('preferences')
+homeFolder = os.getenv('HOME').replace('\\','/') + '/.nuke'
+
 updatePreferences()
 addPreferences()
 
 #----------------------------------------------------------------------------------------------------------
 
 #make sure the archive folders are present, if not, create them
+hotboxLocationPathKnob = preferencesNode.knob('hotboxLocation')
+hotboxLocationPath = hotboxLocationPathKnob.value().replace('\\','/')
 
-hotboxLocationPath = preferencesNode.knob('hotboxLocation').value().replace('\\','/')
+if not hotboxLocationPath:
+    hotboxLocationPath = homeFolder + '/W_hotbox'
+    hotboxLocationPathKnob.setValue(hotboxLocationPath)
+
 if hotboxLocationPath[-1] != '/':
     hotboxLocationPath += '/'
 
-for subFolder in ['','Single','Multiple','All','Single/No Selection','Templates']:
+for subFolder in ['', 'Single', 'Multiple', 'All', 'Rules', 'Single/No Selection', 'Templates']:
     subFolderPath = hotboxLocationPath + subFolder
     if not os.path.isdir(subFolderPath):
         try:
@@ -1203,24 +1417,11 @@ for subFolder in ['','Single','Multiple','All','Single/No Selection','Templates'
             pass
 
 #----------------------------------------------------------------------------------------------------------
-# MENU ITEMS
-#----------------------------------------------------------------------------------------------------------
 
-menubar = nuke.menu('Nuke')
-
-menubar.addCommand('Edit/-', '', '')
-menubar.addCommand('Edit/W_hotbox/Open W_hotbox',showHotbox, shortcut)
-menubar.addCommand('Edit/W_hotbox/-', '', '')
-menubar.addCommand('Edit/W_hotbox/Open Hotbox Manager', 'W_hotboxManager.showHotboxManager()')
-menubar.addCommand('Edit/W_hotbox/Open in %s'%getFileBrowser(), revealInBrowser)
-menubar.addCommand('Edit/W_hotbox/-', '', '')
-menubar.addCommand('Edit/W_hotbox/Repair', 'W_hotboxManager.repairHotbox()')
-menubar.addCommand('Edit/W_hotbox/Clear/Clear Everything', 'W_hotboxManager.clearHotboxManager()')
-menubar.addCommand('Edit/W_hotbox/Clear/Clear Section/Single', 'W_hotboxManager.clearHotboxManager(["Single"])')
-menubar.addCommand('Edit/W_hotbox/Clear/Clear Section/Multiple', 'W_hotboxManager.clearHotboxManager(["Multiple"])')
-menubar.addCommand('Edit/W_hotbox/Clear/Clear Section/All', 'W_hotboxManager.clearHotboxManager(["All"])')
-menubar.addCommand('Edit/W_hotbox/Clear/Clear Section/-', '', '')
-menubar.addCommand('Edit/W_hotbox/Clear/Clear Section/Templates', 'W_hotboxManager.clearHotboxManager(["Templates"])')
+#menu items
+editMenu = nuke.menu('Nuke').findItem('Edit')
+editMenu.addCommand('-', '', '')
+addMenuItems()
 
 #----------------------------------------------------------------------------------------------------------
 # EXTRA REPOSTITORIES
@@ -1254,9 +1455,9 @@ if 'W_HOTBOX_REPO_PATHS' in os.environ and 'W_HOTBOX_REPO_NAMES' in os.environ.k
 
 
     if len(extraRepositories) > 0:
-        menubar.addCommand('Edit/W_hotbox/-', '', '')
-        for i in extraRepositories:
-            menubar.addCommand('Edit/W_hotbox/Special/Open Hotbox Manager - %s'%i[0], 'W_hotboxManager.showHotboxManager(path="%s")'%i[1])
+        menubar.addCommand('W_hotbox/-', '', '')
+        for repo in extraRepositories:
+            menubar.addCommand('W_hotbox/Special/Open Hotbox Manager - %s'%repo[0], 'W_hotboxManager.showHotboxManager(path="%s")'%repo[1])
 
 #----------------------------------------------------------------------------------------------------------
 
@@ -1265,4 +1466,4 @@ lastPosition = ''
 
 #----------------------------------------------------------------------------------------------------------
 
-nuke.tprint('W_hotbox v%s, built %s.\nCopyright (c) 2016 Wouter Gilsing. All Rights Reserved.'%(version,releaseDate))
+nuke.tprint('W_hotbox v%s, built %s.\nCopyright (c) 2016-%s Wouter Gilsing. All Rights Reserved.'%(version, releaseDate, releaseDate.split()[-1]))
