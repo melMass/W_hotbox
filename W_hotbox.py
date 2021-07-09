@@ -1,8 +1,8 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-version = '1.3'
-releaseDate = 'Sept 4 2016'
+version = '1.4'
+releaseDate = 'November 16 2016'
 
 #----------------------------------------------------------------------------------------------------------
 #
@@ -44,6 +44,7 @@ from PySide import QtGui, QtCore
 import os
 import subprocess
 import platform
+import traceback
 
 import colorsys
 
@@ -65,15 +66,24 @@ class hotbox(QtGui.QWidget):
             self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
 
         masterLayout = QtGui.QVBoxLayout()
+
         self.setLayout(masterLayout)
+
+        self.selection = nuke.selectedNodes()
+
+        #check whether selection in group
+        self.groupRoot = 'root'
+
+        if len(self.selection) != 0:
+            nodeRoot = self.selection[0].fullName()
+            if nodeRoot.count('.') > 0:
+                self.groupRoot = '.'.join(nodeRoot.split('.')[:-1])
 
         #--------------------------------------------------------------------------------------------------
         #main hotbox
         #--------------------------------------------------------------------------------------------------
 
         if not subMenuMode:
-
-            self.selection = nuke.selectedNodes()
 
             if len(self.selection) > 1:
 
@@ -347,7 +357,7 @@ class nodeButtons(QtGui.QVBoxLayout):
 class hotboxCenter(QtGui.QLabel):
     '''
     Center button of the hotbox.
-    If the 'color nodes' is set to True in the preferencespanel, the button will take over the color and
+    If the 'color nodes' is set to True in the preferences panel, the button will take over the color and
     name of the current selection. If not, the button will be the same color as the other buttons will
     be in their selected state. The text will be read from the _name.json file in the folder.
     '''
@@ -508,19 +518,72 @@ class hotboxButton(QtGui.QLabel):
         self.setMouseTracking(True)
         self.setFixedWidth(105)
         self.setFixedHeight(35)
+
         fontSize = preferencesNode.knob('hotboxFontSize').value()
         font = QtGui.QFont(preferencesNode.knob('UIFont').value(), fontSize, QtGui.QFont.Bold)
+
         self.setFont(font)
         self.setWordWrap(True)
         self.setTextFormat(QtCore.Qt.RichText)
 
         self.setText(name)
 
-
         self.setAlignment(QtCore.Qt.AlignCenter)
 
         self.selected = False
         self.setSelectionStatus()
+
+    def invokeButton(self):
+        '''
+        Execute script attached to button
+        '''
+        with nuke.toNode(hotboxInstance.groupRoot):
+            try:
+                exec self.function
+            except:
+                self.printError(traceback.format_exc())
+
+    def printError(self, error):
+
+        fullError = error.splitlines()
+
+        lineNumber = 'error determining line'
+
+        for index, line in enumerate(reversed(fullError)):
+            if line.startswith('  File "<'):
+
+                for i in line.split(','):
+                    if i.startswith(' line '):
+                        lineNumber = i
+
+                index = len(fullError)-index
+                break
+
+        fullError = fullError[index:]
+
+        errorDescription = '\n'.join(fullError)
+
+        scriptFolder = os.path.dirname(self.filePath)
+        scriptFolderName = os.path.basename(scriptFolder)
+
+        buttonName = [self.text()]
+
+        while len(scriptFolderName) == 3 and scriptFolderName.isdigit():
+
+            name = open(scriptFolder+'/_name.json').read()
+            buttonName.insert(0, name)
+            scriptFolder = os.path.dirname(scriptFolder)
+            scriptFolderName = os.path.basename(scriptFolder)
+
+        for i in range(2):
+            buttonName.insert(0, os.path.basename(scriptFolder))
+            scriptFolder = os.path.dirname(scriptFolder)
+
+        hotboxError = '\nW_HOTBOX ERROR: %s -%s:\n\n%s'%('/'.join(buttonName),lineNumber,errorDescription)
+
+        #print error
+        print hotboxError
+        nuke.tprint(hotboxError)
 
     def setSelectionStatus(self, selected = False):
         '''
@@ -563,11 +626,14 @@ class hotboxButton(QtGui.QLabel):
         if self.selected:
             nuke.Undo().name(self.text())
             nuke.Undo().begin()
-            try:
-                exec self.function
-            except:
-                pass
+
+
+
+            self.invokeButton()
+
+
             nuke.Undo().end()
+
         return True
 
 #----------------------------------------------------------------------------------------------------------
@@ -838,37 +904,6 @@ def getSelectionColor():
 
 #----------------------------------------------------------------------------------------------------------
 
-def showHotbox(force = False, resetPosition = True):
-
-    global hotboxInstance
-    if force:
-        hotboxInstance.active = False
-        hotboxInstance.close()
-
-    if resetPosition:
-        global lastPosition
-        lastPosition = ''
-
-    if hotboxInstance == None or not hotboxInstance.active:
-        hotboxInstance = hotbox(position = lastPosition)
-        hotboxInstance.show()
-
-def showHotboxSubMenu(path, name):
-    global hotboxInstance
-    hotboxInstance.active = False
-    if hotboxInstance == None or not hotboxInstance.active:
-        hotboxInstance = hotbox(True, path, name)
-        hotboxInstance.show()
-
-def showHotboxManager():
-    '''
-    Open the hotbox manager from the hotbox
-    '''
-    hotboxInstance.closeHotbox()
-    W_hotboxManager.showHotboxManager()
-
-#----------------------------------------------------------------------------------------------------------
-
 def revealInBrowser(startFolder = False):
     '''
     Reveal the hotbox folder in a filebrowser
@@ -909,6 +944,37 @@ def getFileBrowser():
 
     return fileBrowser
 
+#----------------------------------------------------------------------------------------------------------
+
+def showHotbox(force = False, resetPosition = True):
+
+    global hotboxInstance
+
+    if force:
+        hotboxInstance.active = False
+        hotboxInstance.close()
+
+    if resetPosition:
+        global lastPosition
+        lastPosition = ''
+
+    if hotboxInstance == None or not hotboxInstance.active:
+        hotboxInstance = hotbox(position = lastPosition)
+        hotboxInstance.show()
+
+def showHotboxSubMenu(path, name):
+    global hotboxInstance
+    hotboxInstance.active = False
+    if hotboxInstance == None or not hotboxInstance.active:
+        hotboxInstance = hotbox(True, path, name)
+        hotboxInstance.show()
+
+def showHotboxManager():
+    '''
+    Open the hotbox manager from the hotbox
+    '''
+    hotboxInstance.closeHotbox()
+    W_hotboxManager.showHotboxManager()
 
 #----------------------------------------------------------------------------------------------------------
 

@@ -12,7 +12,7 @@ import W_hotbox, W_hotboxManager
 
 3.a Copy the folder named 'icons'  to your .nuke folder. (If you would rather place the icons elsewhere, make sure to follow step 3.b. If you decide to put them in the default location, you can skip step 3.b)
 
-3.b Launch Nuke. Open the Preferences Panel and navigate to the W_hotbox tab. change the path pointing to the icons folder to the folder you placed the icons in step 3.a.
+3.b Launch Nuke. Open the Preferences Panel and navigate to the W_hotbox tab. Change the path pointing to the icons folder to the folder you placed the icons in step 3.a. Restart Nuke.
 
 Step 4 is optional. The download ships with a set of buttons ready to use with the hotbox. The hotbox will function fine without those, but the user has to add buttons himself before the hotbox becomes useful. The buttons that ship with this download are easily removed if the user would rather start from scratch himself. 
 
