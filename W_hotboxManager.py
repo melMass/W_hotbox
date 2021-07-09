@@ -1,8 +1,8 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-version = '1.0'
-releaseDate = '21 August 2016'
+version = '1.1'
+releaseDate = '28 August 2016'
 #----------------------------------------------------------------------------------------------------------
 
 from PySide import QtGui, QtCore
@@ -19,14 +19,14 @@ import tarfile
 preferencesNode = nuke.toNode('preferences')
 
 class hotboxManager(QtGui.QWidget):
-    def __init__(self):
+    def __init__(self, path = ''):
         super(hotboxManager, self).__init__()
 
         #--------------------------------------------------------------------------------------------------
         #main widget
         #--------------------------------------------------------------------------------------------------
 
-        self.setWindowTitle('W_hotbox Manager')
+        self.setWindowTitle('W_hotbox Manager - %s'%path)
 
         self.setMinimumWidth(1000)
         self.setMinimumHeight(400)
@@ -34,10 +34,8 @@ class hotboxManager(QtGui.QWidget):
         #--------------------------------------------------------------------------------------------------
 
         self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
-
-        self.rootLocation = preferencesNode.knob('hotboxLocation').value()
-        if self.rootLocation[-1] != '/':
-            self.rootLocation += '/' 
+        
+        self.rootLocation = path.replace('\\','/')
 
         #--------------------------------------------------------------------------------------------------
         #classes list
@@ -474,8 +472,12 @@ class hotboxManager(QtGui.QWidget):
     def exportHotboxArchive(self):
 
         #create zip
-        archiveLocation = os.getenv('HOME') + '/.nuke/hotboxArchive_%s'%datetime.datetime.now().strftime('%Y%m%d%H%M') + '.tar.gz'
+        nukeFolder = os.getenv('HOME').replace('\\','/') + '/.nuke/'
+        currentDate = datetime.datetime.now().strftime('%Y%m%d%H%M')
+        tempFolder = nukeFolder + 'W_hotboxArchiveImportTemp_%s/'%currentDate
+        os.mkdir(tempFolder)
 
+        archiveLocation = tempFolder + 'hotboxArchive_%s.tar.gz'%currentDate
 
         with tarfile.open(archiveLocation, "w:gz") as tar:
             tar.add(self.rootLocation, arcname=os.path.basename(self.rootLocation))
@@ -502,13 +504,66 @@ class hotboxManager(QtGui.QWidget):
             shutil.copy(archiveLocation, exportFileLocation)
 
         #delete archive
-        os.remove(archiveLocation)
+        shutil.rmtree(tempFolder)
+
+
+    def indexArchive(self, location, dict = False):
+        if dict:
+            fileList = {}
+        else:
+            fileList = []
+
+        for root,b,files in os.walk(location):
+            root = root.replace('\\','/')
+            level = root.replace(location, '')
+        
+            if '/_' not in level and '/.' not in level:
+        
+                newLevel = level
+        
+                if '_name.json' in files:
+                    readName = open(root+'/_name.json').read()
+                    if '/' in readName:
+                        readName = newLevel.replace('/','**BACKSLASH**')
+
+                    newLevel = '/'.join(level.split('/')[:-1])+'/' + readName
+
+                for file in files:
+                    if not file.startswith('.'):
+                        newFile = file
+                        if len(file) == 6:
+                            openFile = open(root + '/' + file).readlines()
+            
+                            nameTag = '# NAME: '
+            
+                            for line in (openFile):
+            
+                                if line.startswith(nameTag):
+            
+                                    newFile = line.split(nameTag)[-1].replace('\n','')
+
+                                    if '/' in newFile:
+                                        newFile = newFile.replace('/','**BACKSLASH**')
+
+                        if dict:
+                            fileList[newLevel + '/' + newFile] = level + '/' + file
+                        else:
+                            fileList.append( [level + '/' + file , newLevel + '/' + newFile ])
+        return fileList
 
     def importHotboxArchive(self):
-
-
+        '''
+        A method to import a set of button to append the current archive with.
+        If you're actually reading this, I apologise in advance for what's coming.
+        I had trouble getting the code to work on Windows and it turned out it had to do with
+        (back)slashes. I ended up trowing in a lot of ".replace('\\','/')". I works, but it
+        turned kinda messy...
+        '''
         nukeFolder = os.getenv('HOME').replace('\\','/') + '/.nuke/'
-        archiveLocation = nukeFolder + 'hotboxArchive_%s.tar.gz'%datetime.datetime.now().strftime('%Y%m%d%H%M')
+        currentDate = datetime.datetime.now().strftime('%Y%m%d%H%M')
+        tempFolder = nukeFolder + 'W_hotboxArchiveImportTemp_%s/'%currentDate
+        os.mkdir(tempFolder)
+        archiveLocation = tempFolder + 'hotboxArchive_%s.tar.gz'%currentDate
 
         if self.clipboardArchive.isChecked():
             encodedArchive = QtGui.QApplication.clipboard().text()
@@ -525,21 +580,103 @@ class hotboxManager(QtGui.QWidget):
 
             shutil.copy(importFileLocation, archiveLocation)
 
-        #delete current settings
-        for i in sorted(os.listdir(self.rootLocation)):
-            i = self.rootLocation + i
-            if os.path.isdir(i):
-                shutil.rmtree(i)
-            else:
-                os.remove(i)
-
         #extract archive
         archive = tarfile.open(archiveLocation)
-        archive.extractall(self.rootLocation)
+        importedArchiveLocation = tempFolder + 'archiveExtracted' + currentDate
+        os.mkdir(importedArchiveLocation)
+        archive.extractall(importedArchiveLocation)
         archive.close()
 
+        importedArchiveLocation += '/'
+
+
+        importedArchiveLocation = importedArchiveLocation.replace('\\','/')
+
+
+        #Make sure the current archive is healthy
+        for i in ['Single','Multiple','All']:
+            repairHotbox(self.rootLocation + i, message = False)
+
+        #Copy stuff from extracted archive to current hotbox location
+
+        importedArchive = self.indexArchive(importedArchiveLocation)
+        currentArchive = self.indexArchive(self.rootLocation, dict = True)
+
+        newItems = []
+        for i in importedArchive:
+            if i[1] in currentArchive.keys():
+                #if a file with the same name was found in the same folder, replace it with the new one
+                shutil.copy(importedArchiveLocation + i[0],self.rootLocation + currentArchive[i[1]])
+            else:
+                #if no such file was found, store it in a list to be added later
+                if not i[0].endswith('/_name.json'):
+                    newItems.append(i)
+        newItems = [[i[0].replace('\\','/'),i[1].replace('\\','/')] for i in newItems]
+        #gather information about which folders are already present on disk, and which should be created
+        allFoldersNeeded = {os.path.dirname(i[1]).replace('\\','/'): os.path.dirname(i[0]).replace('\\','/') for i in newItems}
+        allFoldersNeededInverted = {allFoldersNeeded[i] : i for i in allFoldersNeeded.keys()}
+
+        for i in allFoldersNeeded.keys():
+            if os.path.dirname(i) in allFoldersNeeded.values():
+                dirname1 = os.path.dirname(i).replace('\\','/')
+                dirname2 = allFoldersNeededInverted[os.path.dirname(i).replace('\\','/')]
+                if dirname1 != dirname2:
+                    newItems = [[i[0],i[1].replace(dirname1,dirname2)] for i in newItems]
+
+        #properly sort the list 
+        newItemsDict = {i[0]:i[1] for i in newItems}
+        newItemsSorted = sorted([i[0] for i in newItems])
+        newItems = [[i, newItemsDict[i]] for i in newItemsSorted]
+
+        #move the rest of the files and create new folders when needed
+        for i in newItems:
+            i = [i[0].replace('\\','/'),i[1].replace('\\','/')]
+            if i[0].startswith('All'):
+                prefixFolders = 1
+            else:
+                prefixFolders = 2
+
+            splitFilePath = i[1].split('/')
+
+            classFolders = '/'.join(splitFilePath[:(prefixFolders)])
+            baseFolder = self.rootLocation + classFolders
+            baseFolder = baseFolder.replace('\\','/')
+
+            if not os.path.isdir(baseFolder):
+                os.mkdir(baseFolder)
+            
+            missingFolders = splitFilePath[prefixFolders:-1]
+            for folderName in splitFilePath[prefixFolders:-1]:
+
+                
+                #check folders inside existing folder
+                for folder in [dir for dir in os.listdir(baseFolder) if len(dir) == 3 and dir[0] not in ['.','_']]:
+                    nameFile = baseFolder + '/' + folder + '/_name.json'
+                    if open(nameFile).read() == folderName:
+                        
+                        baseFolder = baseFolder +'/' + folder
+                        missingFolders = missingFolders[1:]
+                        break
+
+                #is the first folder wasn't found, don't bother lookign for its subfolder
+                if missingFolders == splitFilePath[prefixFolders:-1]:
+                    break
+
+
+            #create the missing folders and put _name files in them
+            for folder in missingFolders:
+                currentFiles = [file[:3] for file in os.listdir(baseFolder) if file[0] not in ['.','_']]
+                baseFolder += '/' + str((len(currentFiles) + 1)).zfill(3)
+                os.mkdir(baseFolder)
+                shutil.copy(importedArchiveLocation + os.path.dirname(i[0]).replace('\\','/') + '/_name.json',baseFolder + '/_name.json')
+
+            currentFiles = [file[:3] for file in os.listdir(baseFolder) if file[0] not in ['.','_']]
+            fileName =  str((len(currentFiles) + 1)).zfill(3)+ '.py' 
+            shutil.copy(importedArchiveLocation + '/' + i[0], baseFolder + '/' + fileName)
+
+
         #delete archive
-        os.remove(archiveLocation)
+        shutil.rmtree(tempFolder)
 
         #reinitiate
         self.builtClassesList(True)
@@ -1272,13 +1409,14 @@ class repairHotbox():
 
         #give every file its proper name
 
-        repairProgress = 100.0 / len(self.dirList)
+        repairProgress = 100.0 / max(1.0,len(self.dirList))
 
         for index, i in enumerate(self.dirList):
-            repairProgressBar = nuke.ProgressTask('Repairing W_hotbox...')
+            if message:
+                repairProgressBar = nuke.ProgressTask('Repairing W_hotbox...')
 
-            repairProgressBar.setProgress(int(index * repairProgress))
-            repairProgressBar.setMessage(i)
+                repairProgressBar.setProgress(int(index * repairProgress))
+                repairProgressBar.setMessage(i)
 
             self.repairFolder(i)
 
@@ -1381,7 +1519,7 @@ hotboxManagerInstance = None
 renameDialogInstance = None
 aboutDialogInstance = None
 
-def showHotboxManager():
+def showHotboxManager(path = ''):
     '''
     Launch an instance of the hotbox manager
     '''
@@ -1389,5 +1527,12 @@ def showHotboxManager():
     #check if the manager is opened already, if so close that instance.
     if hotboxManagerInstance != None:
         hotboxManagerInstance.close()
-    hotboxManagerInstance = hotboxManager()
+
+    if path == '':
+        path = preferencesNode.knob('hotboxLocation').value()
+        
+    if path[-1] != '/':
+        path += '/' 
+
+    hotboxManagerInstance = hotboxManager(path)
     hotboxManagerInstance.show()

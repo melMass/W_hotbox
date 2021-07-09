@@ -1,8 +1,8 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-# 21 August 2016
-# v1.0
+# 28 August 2016
+# v1.1
 #----------------------------------------------------------------------------------------------------------
 
 import nuke
@@ -16,6 +16,39 @@ import platform
 import colorsys
 
 #----------------------------------------------------------------------------------------------------------
+#
+#         USER SETTINGS TO MAKE THE HOTBOX FUNCTION PROPERLY IN A STUDIO ENVIRONMENT
+#
+#----------------------------------------------------------------------------------------------------------
+'''
+When enabled, users are able to change the location of the Hotbox Manager icons. In a studio environment, 
+this can be unwanted. Change to False to hide the knob.
+'''
+
+enableChangeableIconLocation = True
+
+'''
+For a studio environment it can be useful to be able to setup multiple repositories to load buttons from,
+rather than having only one. Think of a show specific set of buttons, or facility wide, or both.
+Make sure to point the path to the folder containing the 'All','Multiple' and 'Single' folder, and to end the 
+filepath with a '/'. Also, make sure to always use '/' rather than '\\'. All repositories should be named
+uniquely.
+''' 
+
+extraRepositories = []
+#extraRepositories.append(['NAME','/path/to/extra/repository/W_hotbox/'])
+
+'''
+For example, this will add two extra repositories:
+
+extraRepositories.append(['SHOW','server/shows/nuke/repository/W_hotbox/'])
+extraRepositories.append(['FACILITY','server/tools/nuke/repository/W_hotbox/'])
+'''
+
+#----------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------
+
 
 class hotbox(QtGui.QWidget):
     '''
@@ -203,17 +236,21 @@ class nodeButtons(QtGui.QVBoxLayout):
             if self.path[-1] != '/':
                 self.path = self.path + '/'
 
+            self.allRepositories = list(set([self.path]+[i[1].replace('\\','/') for i in extraRepositories]))
+
             self.rowMaxAmount = int(preferencesNode.knob('hotboxRowAmountAll').value())
 
+            self.folderList = []
+            
+            
             if mode == 'All':
 
-                self.folderList = [self.path + mode + '/']
+                for repository in self.allRepositories:
+                    self.folderList.append(repository + mode + '/')
 
             else:
                 mirrored = False
                 self.rowMaxAmount = int(preferencesNode.knob('hotboxRowAmountSelection').value())
-
-
 
                 if mode == 'Single':
 
@@ -222,31 +259,36 @@ class nodeButtons(QtGui.QVBoxLayout):
 
                     else:
                         nodeClass = selectedNodes[0].Class()
-
-                    self.folderList = [self.path + mode + '/' + nodeClass]
-
+                    
+                    for repository in self.allRepositories:
+                        self.folderList.append(repository + mode + '/' + nodeClass)
+                    
                     #check if group, if so take the name of the group, as well as the class
 
                     if nodeClass == 'Group':
                         nodeClass = selectedNodes[0].name()
                         while nodeClass[-1] in [str(i) for i in range(10)]:
                             nodeClass = nodeClass[:-1]
-                        self.folderList.append(self.path + mode + '/' + nodeClass)
+                        for repository in self.allRepositories:
+                            self.folderList.append(repository + mode + '/' + nodeClass)
 
                 else:
                     #scan the 'multiple' folder for folders containing all the currently selected classes.
                     nodeClasses = sorted(list(set([i.Class() for i in selectedNodes])))
-
-                    self.folderList = []
-                    for i in sorted(os.listdir(self.path + mode)):
-                        if i[0] not in ['.','_']:
-                            folderClasses = sorted(i.split('-'))
-                            if nodeClasses == sorted(list(set(nodeClasses).intersection(folderClasses))):
-                                self.folderList.append(self.path + mode + '/' + i)
-
+                    
+                    for repository in self.allRepositories:
+                        try:
+                            for i in sorted(os.listdir(repository + mode)):
+                                if i[0] not in ['.','_']:
+                                    folderClasses = sorted(i.split('-'))
+                                    if nodeClasses == sorted(list(set(nodeClasses).intersection(folderClasses))):
+                                        self.folderList.append(repository + mode + '/' + i)
+                        except:
+                            pass
+                        
             allItems = []
 
-            for folder in self.folderList:
+            for folder in list(set(self.folderList)):
                 #check if path exists
                 if os.path.exists(folder):
                     for i in sorted(os.listdir(folder)):
@@ -419,6 +461,14 @@ class hotboxButton(QtGui.QLabel):
         self.filePath = name
         self.bgColor = '#525252'
 
+        self.borderColor = '#000000'
+
+        #set the border color to grey for buttons from an additional repository
+        for index,i in enumerate(extraRepositories):
+            if name.startswith(i[1]):
+                self.borderColor = '#959595'
+                break
+
         if function != None:
             self.function = function
 
@@ -484,13 +534,12 @@ class hotboxButton(QtGui.QLabel):
                                 background:%s;
                                 color:#eeeeee;
                                 """%getSelectionColor())
-
         else:
             self.setStyleSheet("""
-                                border: 1px solid black;
+                                border: 1px solid %s;
                                 background:%s;
                                 color:#eeeeee;
-                                """%self.bgColor)
+                                """%(self.borderColor, self.bgColor))
 
         self.selected = selected
 
@@ -527,38 +576,38 @@ class hotboxButton(QtGui.QLabel):
 #----------------------------------------------------------------------------------------------------------
 
 def addToPreferences(knobObject):
-	'''
-	Add a knob to the preference panel.
-	Save current preferences to the prefencesfile in the .nuke folder.
-	'''
-	preferencesNode = nuke.toNode('preferences')
+    '''
+    Add a knob to the preference panel.
+    Save current preferences to the prefencesfile in the .nuke folder.
+    '''
+    preferencesNode = nuke.toNode('preferences')
 
-	if knobObject.name() not in preferencesNode.knobs().keys():
+    if knobObject.name() not in preferencesNode.knobs().keys():
 
-		preferencesNode.addKnob(knobObject)
-		savePreferencesToFile()
-		return preferencesNode.knob(knobObject.name())
+        preferencesNode.addKnob(knobObject)
+        savePreferencesToFile()
+        return preferencesNode.knob(knobObject.name())
 
 def savePreferencesToFile():
-	'''
-	Save current preferences to the prefencesfile in the .nuke folder.
-	Pythonic alternative to the 'ok' button of the preferences panel.
-	'''
+    '''
+    Save current preferences to the prefencesfile in the .nuke folder.
+    Pythonic alternative to the 'ok' button of the preferences panel.
+    '''
 
-	nukeFolder = os.path.expanduser('~') + '/.nuke/'
-	preferencesFile = nukeFolder + 'preferences%i.%i.nk' %(nuke.NUKE_VERSION_MAJOR,nuke.NUKE_VERSION_MINOR)
+    nukeFolder = os.path.expanduser('~') + '/.nuke/'
+    preferencesFile = nukeFolder + 'preferences%i.%i.nk' %(nuke.NUKE_VERSION_MAJOR,nuke.NUKE_VERSION_MINOR)
 
-	preferencesNode = nuke.toNode('preferences')
+    preferencesNode = nuke.toNode('preferences')
 
-	customPrefences = preferencesNode.writeKnobs( nuke.WRITE_USER_KNOB_DEFS | nuke.WRITE_NON_DEFAULT_ONLY | nuke.TO_SCRIPT | nuke.TO_VALUE )
-	customPrefences = customPrefences.replace('\n','\n  ')
+    customPrefences = preferencesNode.writeKnobs( nuke.WRITE_USER_KNOB_DEFS | nuke.WRITE_NON_DEFAULT_ONLY | nuke.TO_SCRIPT | nuke.TO_VALUE )
+    customPrefences = customPrefences.replace('\n','\n  ')
 
-	preferencesCode = 'Preferences {\n inputs 0\n name Preferences%s\n}' %customPrefences
+    preferencesCode = 'Preferences {\n inputs 0\n name Preferences%s\n}' %customPrefences
 
-	# write to file
-	openPreferencesFile = open( preferencesFile , 'w' )
-	openPreferencesFile.write( preferencesCode )
-	openPreferencesFile.close()
+    # write to file
+    openPreferencesFile = open( preferencesFile , 'w' )
+    openPreferencesFile.write( preferencesCode )
+    openPreferencesFile.close()
 
 def deletePreferences():
     '''
@@ -568,7 +617,7 @@ def deletePreferences():
     allText = ''
     with open('%s/.nuke/preferences%s.nk'%(os.getenv('HOME'),nuke.NUKE_VERSION_STRING.split('v')[0]), 'r') as f:
         for i in f.readlines():
-            if 'hotbox' not in i:
+            if 'hotbox' not in i and 'iconLocation' not in i:
                 allText = allText + i
 
     with open('%s/.nuke/preferences%s.nk'%(os.getenv('HOME'),nuke.NUKE_VERSION_STRING.split('v')[0]), 'w') as f:
@@ -665,6 +714,10 @@ def addPreferences():
         except:
             pass
 
+    #hide the iconLocation knob if defined so at the top of the script (line 28)
+    preferencesNode.knob('iconLocation').setVisible(True)
+    if not enableChangeableIconLocation:
+        preferencesNode.knob('iconLocation').setVisible(False)
 #----------------------------------------------------------------------------------------------------------
 #Color
 #----------------------------------------------------------------------------------------------------------
@@ -805,3 +858,7 @@ nuke.menu('Nuke').addCommand('Edit/W_hotbox/Clear/Clear Everything', 'W_hotboxMa
 nuke.menu('Nuke').addCommand('Edit/W_hotbox/Clear/Clear Section/Single', 'W_hotboxManager.clearHotboxManager(["Single"])')
 nuke.menu('Nuke').addCommand('Edit/W_hotbox/Clear/Clear Section/Multiple', 'W_hotboxManager.clearHotboxManager(["Multiple"])')
 nuke.menu('Nuke').addCommand('Edit/W_hotbox/Clear/Clear Section/All', 'W_hotboxManager.clearHotboxManager(["All"])')
+
+if len(extraRepositories) > 0:
+    for i in extraRepositories:
+        nuke.menu('Nuke').addCommand('Edit/W_hotbox/Special/Open Hotbox Manager - %s'%i[0], 'W_hotboxManager.showHotboxManager(path="%s")'%i[1])

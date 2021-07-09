@@ -1,5 +1,9 @@
 W_HOTBOX INSTALLATION GUIDE
 
+--------------------------------------------------------------------------------------------
+FRESH INSTALLATION
+--------------------------------------------------------------------------------------------
+
 1 Copy 'W_hotbox.py' and 'W_hotboxManager.py' to a folder that's part of the nuke plugin path.
   
 2 Append menu.py with the following code:
@@ -20,3 +24,10 @@ Step 4 is optional. The download ships with a set of buttons ready to use with t
 
 
 *If you are running the Hotbox on KDE Linux, you might experience some transparency related issues. Check out the 'Transparency on KDE Linux' section in the user guide to see how you can resolve those problems*
+
+
+--------------------------------------------------------------------------------------------
+UPGRADE
+--------------------------------------------------------------------------------------------
+
+To upgrade the hotbox simply replace the old ‘W_hotbox.py’ and ‘W_hotboxManager.py’ with their updated versions. 
