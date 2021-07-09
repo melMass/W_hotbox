@@ -1,8 +1,40 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-# 29 August 2016
-# v1.2
+version = '1.3'
+releaseDate = 'Sept 4 2016'
+
+#----------------------------------------------------------------------------------------------------------
+#
+#LICENSE
+#
+#----------------------------------------------------------------------------------------------------------
+'''
+Copyright (c) 2016, Wouter Gilsing
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Redistribution of this software in source or binary forms shall be free
+      of all charges or fees to the recipient of this software.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+'''
+
 #----------------------------------------------------------------------------------------------------------
 
 import nuke
@@ -199,7 +231,7 @@ class nodeButtons(QtGui.QVBoxLayout):
 
         else:
 
-            self.path = preferencesNode.knob('hotboxLocation').value()
+            self.path = preferencesNode.knob('hotboxLocation').value().replace('\\','/')
             if self.path[-1] != '/':
                 self.path = self.path + '/'
 
@@ -476,8 +508,8 @@ class hotboxButton(QtGui.QLabel):
         self.setMouseTracking(True)
         self.setFixedWidth(105)
         self.setFixedHeight(35)
-        font = QtGui.QFont(preferencesNode.knob('UIFont').value(), 9, QtGui.QFont.Bold)
-
+        fontSize = preferencesNode.knob('hotboxFontSize').value()
+        font = QtGui.QFont(preferencesNode.knob('UIFont').value(), fontSize, QtGui.QFont.Bold)
         self.setFont(font)
         self.setWordWrap(True)
         self.setTextFormat(QtCore.Qt.RichText)
@@ -581,18 +613,20 @@ def deletePreferences():
     Delete all the W_hotbox related items in the properties panel.
     '''
 
-    allText = ''
-    with open('%s/.nuke/preferences%s.nk'%(os.getenv('HOME'),nuke.NUKE_VERSION_STRING.split('v')[0]), 'r') as f:
-        for i in f.readlines():
-            if 'hotbox' not in i and 'iconLocation' not in i:
-                allText = allText + i
+    firstLaunch = True
+    for i in preferencesNode.knobs().keys():
+        if 'hotbox' in i:
+            preferencesNode.removeKnob(preferencesNode.knob(i))
+            firstLaunch = False
 
-    with open('%s/.nuke/preferences%s.nk'%(os.getenv('HOME'),nuke.NUKE_VERSION_STRING.split('v')[0]), 'w') as f:
-        f.write(allText)
+    #remove TabKnob
+    try:
+        preferencesNode.removeKnob(preferencesNode.knob('hotboxLabel'))
+    except:
+        pass
 
-    nuke.message('Make sure to close the preference window by clicking the cancel button')
-
-#----------------------------------------------------------------------------------------------------------
+    if not firstLaunch:
+        savePreferencesToFile()
 
 def addPreferences():
     '''
@@ -602,42 +636,56 @@ def addPreferences():
     homeFolder = os.getenv('HOME').replace('\\','/') + '/.nuke'
     
     addToPreferences(nuke.Tab_Knob('hotboxLabel','W_hotbox'))
-
     addToPreferences(nuke.Text_Knob('hotboxGeneralLabel','<b>General</b>'))
 
+    #version knob to check whether the hotbox was updated
+    versionKnob = nuke.String_Knob('hotboxVersion','version')
+    versionKnob.setValue(version)
+    addToPreferences(versionKnob)
+    preferencesNode.knob('hotboxVersion').setVisible(False)
+
+    #location knob
     locationKnob = nuke.File_Knob('hotboxLocation','Hotbox location')
     locationKnobAdded = addToPreferences(locationKnob)
     if locationKnobAdded != None:
-        location = homeFolder + '/W_hotbox'
-        for i in ['','All','Single','Multiple','Single/No Selection']:
-            try:
-                os.mkdir(location + '/' + i)
-            except:
-                pass
-        locationKnob.setValue(location)
+        locationKnob.setValue(homeFolder + '/W_hotbox')
 
-    iconLocationKnob = nuke.File_Knob('iconLocation','Icons location')
+    #icons knob
+    iconLocationKnob = nuke.File_Knob('hotboxIconLocation','Icons location')
     iconLocationKnob.setValue(homeFolder +'/icons/W_hotbox')
     addToPreferences(iconLocationKnob)
 
+    #shortcut knob
     shortcutKnob = nuke.String_Knob('hotboxShortcut','shortcut')
     shortcutKnob.setValue('`')
     addToPreferences(shortcutKnob)
     global shortcut
     shortcut = preferencesNode.knob('hotboxShortcut').value()
 
+    #transparency knob
     opaqueKnob = nuke.Boolean_Knob('hotboxOpaqueBackground', 'Disable transparancy')
     opaqueKnob.setValue(False)
     opaqueKnob.setFlag(nuke.STARTLINE)
     addToPreferences(opaqueKnob)
 
+    #Check if the compositing manager is running. If thats not the case, disable the transparancy.
+    if not preferencesNode.knob('hotboxOpaqueBackground').value():
+        try:
+            if not QtGui.QX11Info.isCompositingManagerRunning():
+                preferencesNode.knob('hotBoxOpaqueBackground').setValue(True)
+        except:
+            pass
+
+    #open manager button
     openManagerKnob = nuke.PyScript_Knob('hotboxOpenManager','open hotbox manager','W_hotboxManager.showHotboxManager()')
     openManagerKnob.setFlag(nuke.STARTLINE)
     addToPreferences(openManagerKnob)
 
+    #open in file system button
     openFolderKnob = nuke.PyScript_Knob('hotboxOpenFolder','open hotbox folder','W_hotbox.revealInBrowser(True)')
     addToPreferences(openFolderKnob)
 
+    #delete preferences button
     deletePreferencesKnob = nuke.PyScript_Knob('hotboxDeletePreferences','delete preferences','W_hotbox.deletePreferences()')
     addToPreferences(deletePreferencesKnob)
 
@@ -654,6 +702,11 @@ def addPreferences():
     colorHotboxCenterKnob.setValue(True)
     colorHotboxCenterKnob.clearFlag(nuke.STARTLINE)
     addToPreferences(colorHotboxCenterKnob)
+
+    #fontsize knob
+    fontSizeKnob = nuke.Int_Knob('hotboxFontSize','Font size')
+    fontSizeKnob.setValue(9)
+    addToPreferences(fontSizeKnob)
 
     addToPreferences(nuke.Text_Knob('hotboxItemsLabel','<b>Items per Row</b>'))
 
@@ -673,19 +726,69 @@ def addPreferences():
     spawnModeKnob.setFlag(nuke.STARTLINE)
     addToPreferences(spawnModeKnob)
 
-    #Check if the compositing manager is running. If thats not the case, disable the transparancy.
-    if not preferencesNode.knob('hotboxOpaqueBackground').value():
-        try:
-            if not QtGui.QX11Info.isCompositingManagerRunning():
-                preferencesNode.knob('hotBoxOpaqueBackground').setValue(True)
-        except:
-            pass
-
     #hide the iconLocation knob if environment varible called 'W_HOTBOX_HIDE_ICON_LOC' is set to 'true' or '1'
-    preferencesNode.knob('iconLocation').setVisible(True)
+    preferencesNode.knob('hotboxIconLocation').setVisible(True)
     if 'W_HOTBOX_HIDE_ICON_LOC' in os.environ.keys():
         if os.environ['W_HOTBOX_HIDE_ICON_LOC'].lower() in ['true','1']:
-            preferencesNode.knob('iconLocation').setVisible(False)
+            preferencesNode.knob('hotboxIconLocation').setVisible(False)
+
+    savePreferencesToFile()
+
+def updatePreferences():
+    '''
+    Check whether the hotbox was updated since the last launch. If so refresh the preferences.
+    '''
+
+
+    allKnobs = preferencesNode.knobs().keys()
+
+    #Older versions of the hotbox had a knob called 'iconLocation'.
+    #This was a mistake and the knob was supposed to be called
+    #'hotboxIconLocation', similar to the rest of the knobs.
+
+    forceUpdate = False
+
+    if 'iconLocation' in allKnobs and 'hotboxIconLocation' not in allKnobs:
+
+        currentSetting = preferencesNode.knob('iconLocation').value()
+
+        #delete 'iconLocation'
+        preferencesNode.removeKnob(preferencesNode.knob('iconLocation'))
+
+        #re-add 'hotboxIconLocation'
+        iconLocationKnob = nuke.File_Knob('hotboxIconLocation','Icons location')
+        iconLocationKnob.setValue(currentSetting)
+        addToPreferences(iconLocationKnob)
+
+        forceUpdate = True
+
+    allKnobs = preferencesNode.knobs().keys()
+    proceedUpdate = True
+
+    if 'hotboxVersion' in allKnobs or forceUpdate:
+
+        if not forceUpdate:
+            if float(version) == float(preferencesNode.knob('hotboxVersion').value()):
+                proceedUpdate = False
+                
+        if proceedUpdate:
+            currentSettings = {knob:preferencesNode.knob(knob).value() for knob in allKnobs if knob.startswith('hotbox') and knob != 'hotboxVersion'}
+
+            #delete all the preferences
+            deletePreferences()
+
+            #re-add all the knobs
+            addPreferences()
+
+            #Restore
+            for knob in currentSettings.keys():
+                try:
+                    preferencesNode.knob(knob).setValue(currentSettings[knob])
+                except:
+                    pass
+
+            #save to file
+            savePreferencesToFile()
 
 #----------------------------------------------------------------------------------------------------------
 #Color
@@ -809,8 +912,34 @@ def getFileBrowser():
 
 #----------------------------------------------------------------------------------------------------------
 
+nuke.tprint('W_hotbox v%s, built %s.\nCopyright (c) 2016 Wouter Gilsing. All Rights Reserved.'%(version,releaseDate))
+
+#add knobs to preferences
+preferencesNode = nuke.toNode('preferences')
+updatePreferences()
+addPreferences()
+
+#----------------------------------------------------------------------------------------------------------
+
+#make sure the archive folders are present, if not, create them
+
+hotboxLocationPath = preferencesNode.knob('hotboxLocation').value().replace('\\','/')
+if hotboxLocationPath[-1] != '/':
+    hotboxLocationPath += '/'
+
+for subFolder in ['','Single','Multiple','All','Single/No Selection']:
+    subFolderPath = hotboxLocationPath + subFolder
+    if not os.path.isdir(subFolderPath):
+        try:
+            os.mkdir(subFolderPath)
+        except:
+            pass
+
+#----------------------------------------------------------------------------------------------------------
+
 #check for environment variables to add extra repositories
 '''
+add them line this:
 NUKE_HOTBOX_REPO_PATHS=/path1:/path2:/path3
 NUKE_HOTBOX_REPO_NAMES=name1:name2:name3
 '''
@@ -834,10 +963,6 @@ if 'W_HOTBOX_REPO_PATHS' in os.environ and 'W_HOTBOX_REPO_NAMES' in os.environ.k
             extraRepositories.append([name,path])
 
 #----------------------------------------------------------------------------------------------------------
-
-
-preferencesNode = nuke.toNode('preferences')
-addPreferences()
 
 import W_hotboxManager
 

@@ -1,8 +1,40 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-version = '1.2'
-releaseDate = '29 August 2016'
+version = '1.3'
+releaseDate = 'Sept 4 2016'
+
+#----------------------------------------------------------------------------------------------------------
+#
+#LICENSE
+#
+#----------------------------------------------------------------------------------------------------------
+'''
+Copyright (c) 2016, Wouter Gilsing
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Redistribution of this software in source or binary forms shall be free
+      of all charges or fees to the recipient of this software.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+'''
+
 #----------------------------------------------------------------------------------------------------------
 
 from PySide import QtGui, QtCore
@@ -36,6 +68,22 @@ class hotboxManager(QtGui.QWidget):
         self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
         
         self.rootLocation = path.replace('\\','/')
+
+        #--------------------------------------------------------------------------------------------------
+
+        #If the manager is launched for the default repository, make sure the current archive exists.
+        preferencesLocation = preferencesNode.knob('hotboxLocation').value()
+        if preferencesLocation[-1] != '/':
+            preferencesLocation += '/'
+
+        if self.rootLocation == preferencesLocation:
+            for subFolder in ['','Single','Multiple','All','Single/No Selection']:
+                subFolderPath = self.rootLocation + subFolder
+                if not os.path.isdir(subFolderPath):
+                    try:
+                        os.mkdir(subFolderPath)
+                    except:
+                        pass
 
         #--------------------------------------------------------------------------------------------------
         #classes list
@@ -1130,7 +1178,7 @@ class QLabelButton(QtGui.QLabel):
         
         self.setToolTip(name)
 
-        iconFolder = preferencesNode.knob('iconLocation').value()
+        iconFolder = preferencesNode.knob('hotboxIconLocation').value()
         while iconFolder[-1] == '/':
             iconFolder = iconFolder[:-1]
 
@@ -1244,7 +1292,7 @@ class aboutDialog(QtGui.QWidget):
         self.setFixedWidth(230)
 
         aboutHotbox = QtGui.QLabel()
-        aboutIcon = preferencesNode.knob('iconLocation').value().replace('\\','/') + '/icon.png'
+        aboutIcon = preferencesNode.knob('hotboxIconLocation').value().replace('\\','/') + '/icon.png'
         aboutIcon = aboutIcon.replace('//icon.png','/icon.png')
         aboutHotbox.setPixmap(QtGui.QPixmap(aboutIcon))
 
@@ -1257,7 +1305,7 @@ class aboutDialog(QtGui.QWidget):
 
 
         fontSize = 0.3
-        font = 'Verdana'
+        font = preferencesNode.knob('UIFont').value()
         mediumFont = QtGui.QFont(font, fontSize * 40)
         smallFont = QtGui.QFont(font, fontSize * 30)
 
