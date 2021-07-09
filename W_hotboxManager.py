@@ -1,14 +1,15 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-version = '1.4'
-releaseDate = 'November 16 2016'
+version = '1.5'
+releaseDate = 'December 11 2016'
 
 #----------------------------------------------------------------------------------------------------------
 #
 #LICENSE
 #
 #----------------------------------------------------------------------------------------------------------
+
 '''
 Copyright (c) 2016, Wouter Gilsing
 All rights reserved.
@@ -37,18 +38,21 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #----------------------------------------------------------------------------------------------------------
 
+import nuke
+
 from PySide import QtGui, QtCore
 
-import datetime
-import nuke
 import os
 import shutil
+import datetime
 import base64
 import re
 import webbrowser
 import tarfile
 
 preferencesNode = nuke.toNode('preferences')
+
+#----------------------------------------------------------------------------------------------------------
 
 class hotboxManager(QtGui.QWidget):
     def __init__(self, path = ''):
@@ -427,6 +431,7 @@ class hotboxManager(QtGui.QWidget):
         activeColor = '#3a3a3a'
         lockedColor = '#262626'
 
+        self.scriptEditorScript.savedText = ''
 
         if len(self.hotboxItemsTree.selectedItems) != 0:
             self.selectedItem = self.hotboxItemsTree.selectedItems[0]
@@ -451,6 +456,7 @@ class hotboxManager(QtGui.QWidget):
                     for index, line in enumerate(openFile):
                         if not line.startswith('#'):
                             text = ''.join(openFile[index+1:]).replace('\t',' '*4)
+                            self.scriptEditorScript.savedText = text
                             self.scriptEditorScript.setPlainText(text)
                             break
                     self.scriptEditorScript.setReadOnly(False)
@@ -501,14 +507,22 @@ class hotboxManager(QtGui.QWidget):
 
             name = self.scriptEditorName.text()
 
+            #check whether button or subfolder
             if not os.path.isdir(self.selectedItem.path):
 
-                newFileContent = fileHeader(name).getHeader() +  self.scriptEditorScript.toPlainText()
+                #save to disk
+                text = self.scriptEditorScript.toPlainText()
+                newFileContent = fileHeader(name).getHeader() + text
                 currentFile = open(self.selectedItem.path, 'w')
                 currentFile.write(newFileContent)
                 currentFile.close()
 
+                #change border color
+                self.scriptEditorScript.savedText = text
+                self.scriptEditorScript.updateSaveState(True)
+
             else:
+                #save to disk
                 currentFile = open(self.selectedItem.path+'/_name.json', 'w')
                 currentFile.write(name)
                 currentFile.close() 
@@ -758,8 +772,6 @@ class hotboxManager(QtGui.QWidget):
 class scriptEditorWidget(QtGui.QPlainTextEdit):
     '''
     Script editor widget.
-
-
     '''
 
     #Signal that will be emitted when the user has changed the text
@@ -768,9 +780,13 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
     def __init__(self):
         super(scriptEditorWidget, self).__init__()
 
+        self.savedText = ''
+        self.saveColor = 'grey'
+
         #Setup line numbers
         self.lineNumberArea = LineNumberArea(self)
         self.blockCountChanged.connect(self.updateLineNumberAreaWidth)
+        self.textChanged.connect(self.updateSaveState)
         self.updateRequest.connect(self.updateLineNumberArea)
         self.updateLineNumberAreaWidth()
 
@@ -843,7 +859,6 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
 
             painter.setPen(textColor)
 
-
             number = "%s " % str(blockNumber + 1)
             painter.drawText(0, top, self.lineNumberArea.width(), self.fontMetrics().height(), QtCore.Qt.AlignRight, number)
 
@@ -853,6 +868,7 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
             bottom = top + int(self.blockBoundingRect(block).height())
             blockNumber += 1
 
+
     #--------------------------------------------------------------------------------------------------
     #Auto indent
     #--------------------------------------------------------------------------------------------------
@@ -861,7 +877,6 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
         '''
         Custom actions for specific keystrokes
         '''
-
 
         #if Tab convert to Space
         if event.key() == 16777217:
@@ -883,6 +898,7 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
             self.indentNewLine()
         else:
             QtGui.QPlainTextEdit.keyPressEvent(self, event)
+
     #--------------------------------------------------------------------------------------------------
 
     def getCursorInfo(self):
@@ -1046,8 +1062,28 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
         return text
 
     #--------------------------------------------------------------------------------------------------
-    #syntax hightlighting
+    #current line hightlighting
     #--------------------------------------------------------------------------------------------------
+
+    def updateSaveState(self, saved = False):
+        '''
+        Change border color according to state of text
+        '''
+
+        if saved:
+            newsaveColor = 'green'
+
+        else:
+
+            if self.toPlainText() == self.savedText:
+                newsaveColor =  'grey'
+            else:
+                newsaveColor = 'orange'
+
+        if newsaveColor != self.saveColor:
+            self.saveColor = newsaveColor
+
+        self.highlightCurrentLine()
 
     def highlightCurrentLine(self):
         '''
@@ -1057,7 +1093,15 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
 
         selection = QtGui.QTextEdit.ExtraSelection()
 
-        lineColor = QtGui.QColor(88, 88, 88, 255)
+        #change depending on save state
+        if self.saveColor == 'orange':
+            lineColor = QtGui.QColor(88, 88, 88, 255)
+
+        elif self.saveColor == 'green':
+            lineColor = QtGui.QColor(44, 88, 44, 255)
+            self.saveColor = 'grey'
+        else:
+            lineColor = QtGui.QColor(44, 44, 44, 255)
 
         if not self.hasFocus():
             lineColor = QtGui.QColor(88, 88, 88, 0)
