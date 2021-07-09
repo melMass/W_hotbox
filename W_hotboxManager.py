@@ -1,8 +1,8 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-version = '1.5'
-releaseDate = 'December 11 2016'
+version = '1.6'
+releaseDate = 'May 13 2017'
 
 #----------------------------------------------------------------------------------------------------------
 #
@@ -39,16 +39,19 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #----------------------------------------------------------------------------------------------------------
 
 import nuke
-
 from PySide import QtGui, QtCore
 
 import os
 import shutil
-import datetime
-import base64
+
 import re
-import webbrowser
-import tarfile
+import string
+import colorsys
+
+from datetime import datetime as dt
+from webbrowser import open as openURL
+
+import W_hotbox
 
 preferencesNode = nuke.toNode('preferences')
 
@@ -62,18 +65,26 @@ class hotboxManager(QtGui.QWidget):
         #main widget
         #--------------------------------------------------------------------------------------------------
 
+        #parent to main nuke interface
+        self.setParent(QtGui.QApplication.instance().activeWindow())
+        self.setWindowFlags(QtCore.Qt.Tool)
+
         self.setWindowTitle('W_hotbox Manager - %s'%path)
 
         self.setMinimumWidth(1000)
         self.setMinimumHeight(400)
 
         #--------------------------------------------------------------------------------------------------
+        #colors
+        #--------------------------------------------------------------------------------------------------
 
-        self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
-        
-        self.rootLocation = path.replace('\\','/')
+        self.activeColor = '#3a3a3a'
+        self.lockedColor = '#262626'
 
         #--------------------------------------------------------------------------------------------------
+
+        self.rootLocation = path.replace('\\','/')
+
 
         #If the manager is launched for the default repository, make sure the current archive exists.
         preferencesLocation = preferencesNode.knob('hotboxLocation').value()
@@ -89,6 +100,8 @@ class hotboxManager(QtGui.QWidget):
                     except:
                         pass
 
+        self.templateLocation = self.rootLocation + 'Templates/'
+
         #--------------------------------------------------------------------------------------------------
         #classes list
         #--------------------------------------------------------------------------------------------------
@@ -96,27 +109,30 @@ class hotboxManager(QtGui.QWidget):
         self.classesListLayout = QtGui.QVBoxLayout()
 
         self.scopeComboBox = QtGui.QComboBox()
-        self.scopeComboBox.addItems(['Single','Multiple','All'])
-        self.scopeComboBox.currentIndexChanged.connect( self.builtClassesList )
+        self.scopeComboBoxItems = ['Single','Multiple','All']
+        self.scopeComboBox.addItems(self.scopeComboBoxItems)
 
-        self.classesList = QtGui.QListWidget()
+        self.scopeComboBox.currentIndexChanged.connect(self.buildClassesList)
+
+        self.classesList = QListWidgetCustom(self)
         self.classesList.setFixedWidth(150)
 
         self.classesListLayout.addWidget(self.scopeComboBox)
         self.classesListLayout.addWidget(self.classesList)
 
         #buttons
-
         self.classesListButtonsLayout = QtGui.QVBoxLayout()
 
-        self.classesListAddButton = QLabelButton('add')
-        self.classesListRemoveButton = QLabelButton('remove')
-        self.classesListRenameButton = QLabelButton('rename')
+        self.classesListAddButton = QLabelButton('add',self.classesList)
+        self.classesListRemoveButton = QLabelButton('remove',self.classesList)
+        self.classesListRenameButton = QLabelButton('rename',self.classesList)
 
-        self.connect(self.classesListAddButton, QtCore.SIGNAL('buttonClicked()'), self.addClass)
-        self.connect(self.classesListRemoveButton, QtCore.SIGNAL('buttonClicked()'), self.removeClass)
-        self.connect(self.classesListRenameButton, QtCore.SIGNAL('buttonClicked()'), self.renameClass)
+        #wire up
+        self.classesListAddButton.clicked.connect(self.addClass)
+        self.classesListRemoveButton.clicked.connect(self.removeClass)
+        self.classesListRenameButton.clicked.connect(self.renameClass)
 
+        #assemble layout
         self.classesListButtonsLayout.addStretch()
         self.classesListButtonsLayout.addWidget(self.classesListAddButton)
         self.classesListButtonsLayout.addWidget(self.classesListRemoveButton)
@@ -139,37 +155,54 @@ class hotboxManager(QtGui.QWidget):
 
         self.hotboxItemsTreeButtonsLayout = QtGui.QVBoxLayout()
 
-        self.hotboxItemsTreeAddButton = QLabelButton('add')
-        self.hotboxItemsTreeAddFolderButton = QLabelButton('addFolder')
-        self.hotboxItemsTreeRemoveButton = QLabelButton('remove')
-        self.hotboxItemsTreeDuplicateButton = QLabelButton('duplicate')
-        self.hotboxItemsTreeCopyButton = QLabelButton('copy')
-        self.hotboxItemsTreePasteButton = QLabelButton('paste')
+        self.hotboxItemsTreeAddButton = QLabelButton('add',self.hotboxItemsTree)
+        self.hotboxItemsTreeAddFolderButton = QLabelButton('addFolder',self.hotboxItemsTree)
+        self.hotboxItemsTreeRemoveButton = QLabelButton('remove',self.hotboxItemsTree)
+        self.hotboxItemsTreeDuplicateButton = QLabelButton('duplicate',self.hotboxItemsTree)
+        self.hotboxItemsTreeCopyButton = QLabelButton('copy',self.hotboxItemsTree)
+        self.hotboxItemsTreePasteButton = QLabelButton('paste',self.hotboxItemsTree)
 
-        self.connect(self.hotboxItemsTreeAddButton, QtCore.SIGNAL('buttonClicked()'), self.hotboxItemsTree.addItem)
-        self.connect(self.hotboxItemsTreeAddFolderButton, QtCore.SIGNAL('buttonClicked()'), lambda: self.hotboxItemsTree.addItem(True))
-        self.connect(self.hotboxItemsTreeRemoveButton, QtCore.SIGNAL('buttonClicked()'), self.hotboxItemsTree.removeItem)
-        self.connect(self.hotboxItemsTreeDuplicateButton, QtCore.SIGNAL('buttonClicked()'), self.hotboxItemsTree.duplicateItem)
-        self.connect(self.hotboxItemsTreeCopyButton, QtCore.SIGNAL('buttonClicked()'), self.hotboxItemsTree.copyItem)
-        self.connect(self.hotboxItemsTreePasteButton, QtCore.SIGNAL('buttonClicked()'), self.hotboxItemsTree.pasteItem)
+        self.hotboxItemsTreeMoveUp = QLabelButton('moveUp',self.hotboxItemsTree)
+        self.hotboxItemsTreeMoveDown = QLabelButton('moveDown',self.hotboxItemsTree)
+        self.hotboxItemsTreeMoveUpLevel = QLabelButton('moveUpLevel',self.hotboxItemsTree)
 
+        #wire up
+        self.hotboxItemsTreeAddButton.clicked.connect(self.hotboxItemsTree.addItem)
+        self.hotboxItemsTreeAddFolderButton.clicked.connect(lambda: self.hotboxItemsTree.addItem(True))
+        self.hotboxItemsTreeRemoveButton.clicked.connect(self.hotboxItemsTree.removeItem)
+        self.hotboxItemsTreeDuplicateButton.clicked.connect(self.hotboxItemsTree.duplicateItem)
+        self.hotboxItemsTreeCopyButton.clicked.connect(self.hotboxItemsTree.copyItem)
+        self.hotboxItemsTreePasteButton.clicked.connect(self.hotboxItemsTree.pasteItem)
 
+        self.hotboxItemsTreeMoveUp.clicked.connect(lambda: self.hotboxItemsTree.moveItem(0))
+        self.hotboxItemsTreeMoveDown.clicked.connect(lambda: self.hotboxItemsTree.moveItem(1))
+        self.hotboxItemsTreeMoveUpLevel.clicked.connect(lambda: self.hotboxItemsTree.moveItem(2))
+
+        #assemble layout
         self.hotboxItemsTreeButtonsLayout.addStretch()
         self.hotboxItemsTreeButtonsLayout.addWidget(self.hotboxItemsTreeAddButton)
         self.hotboxItemsTreeButtonsLayout.addWidget(self.hotboxItemsTreeAddFolderButton)
         self.hotboxItemsTreeButtonsLayout.addWidget(self.hotboxItemsTreeRemoveButton)
+
         self.hotboxItemsTreeButtonsLayout.addSpacing(25)
+
+        self.hotboxItemsTreeButtonsLayout.addWidget(self.hotboxItemsTreeMoveUp)
+        self.hotboxItemsTreeButtonsLayout.addWidget(self.hotboxItemsTreeMoveDown)
+        self.hotboxItemsTreeButtonsLayout.addWidget(self.hotboxItemsTreeMoveUpLevel)
+
+        self.hotboxItemsTreeButtonsLayout.addSpacing(25)
+
         self.hotboxItemsTreeButtonsLayout.addWidget(self.hotboxItemsTreeCopyButton)
         self.hotboxItemsTreeButtonsLayout.addWidget(self.hotboxItemsTreePasteButton)
         self.hotboxItemsTreeButtonsLayout.addWidget(self.hotboxItemsTreeDuplicateButton)
+
         self.hotboxItemsTreeButtonsLayout.addStretch()
 
         #--------------------------------------------------------------------------------------------------
         #import/export
         #--------------------------------------------------------------------------------------------------
 
-        self.archiveButtonsLayout = QtGui.QHBoxLayout()   
-
+        #create buttons
         self.clipboardArchive = QtGui.QRadioButton('Clipboard')
         self.importArchiveButton = QtGui.QPushButton('Import Archive')
         self.exportArchiveButton = QtGui.QPushButton('Export Archive')
@@ -177,9 +210,20 @@ class hotboxManager(QtGui.QWidget):
         self.importArchiveButton.setMaximumWidth(100)
         self.exportArchiveButton.setMaximumWidth(100)
 
+        #tooltips
+        tooltip = 'Make use of the clipboard to import/export an archive, rather than saving a file to disk.'
+        self.clipboardArchive.setToolTip(tooltip)
+        tooltip = 'Export the current set of buttons as an archive.'
+        self.importArchiveButton.setToolTip(tooltip)
+        tooltip = 'Import a button archive. This will append the current set of buttons and overwrite any buttons with the same name.'
+        self.exportArchiveButton.setToolTip(tooltip)
+
+        #wire up
         self.importArchiveButton.clicked.connect(self.importHotboxArchive)
         self.exportArchiveButton.clicked.connect(self.exportHotboxArchive)
 
+        #assemble
+        self.archiveButtonsLayout = QtGui.QHBoxLayout()
         self.archiveButtonsLayout.addStretch()
         self.archiveButtonsLayout.addWidget(self.clipboardArchive)
         self.archiveButtonsLayout.addWidget(self.importArchiveButton)
@@ -193,23 +237,62 @@ class hotboxManager(QtGui.QWidget):
 
         self.scriptEditorLayout = QtGui.QVBoxLayout()       
 
+        #buttons
+        self.scriptEditorButtonsLayout = QtGui.QHBoxLayout()
+
+        self.scriptEditorTemplateButton = QtGui.QToolButton()
+        self.scriptEditorTemplateButton.setText('Templates  ')
+        self.scriptEditorTemplateButton.setPopupMode(QtGui.QToolButton.InstantPopup)
+
+        self.exitTemplateModeButton = QtGui.QPushButton('Exit template mode')
+        self.exitTemplateModeButton.setStyleSheet('color: #f7931e')
+        self.exitTemplateModeButton.setVisible(False)
+
+        self.scriptEditorImportButton = QtGui.QPushButton('Import')
+        self.scriptEditorImportButton.clicked.connect(self.importScriptEditor)
+
+        self.scriptEditorTemplateMenu = scriptEditorTemplateMenu(self)
+        self.scriptEditorTemplateButton.setMenu(self.scriptEditorTemplateMenu)
+        self.exitTemplateModeButton.clicked.connect(self.toggleTemplateMode)
+
+        self.scriptEditorTemplateButtons = [self.exitTemplateModeButton, self.scriptEditorTemplateButton]
+
+        self.scriptEditorButtonsLayout.addStretch()
+        for button in self.scriptEditorTemplateButtons + [self.scriptEditorImportButton]:
+            self.scriptEditorButtonsLayout.addWidget(button)
+        self.scriptEditorButtonsLayout.addStretch()
+
         #name
         self.scriptEditorNameLayout = QtGui.QHBoxLayout()
 
         self.scriptEditorNameLabel = QtGui.QLabel('Name')
-        self.scriptEditorName = QtGui.QLineEdit()
+        self.scriptEditorName = scriptEditorNameWidget()
         self.scriptEditorName.setAlignment(QtCore.Qt.AlignLeft)
-        self.scriptEditorName.setReadOnly(True)
-        self.scriptEditorName.setStyleSheet('background:#262626')
 
-        self.scriptEditorNameLayout.addWidget(self.scriptEditorNameLabel)
-        self.scriptEditorNameLayout.addWidget(self.scriptEditorName)
+        self.scriptEditorName.editingFinished.connect(self.saveScriptEditor)
 
+        #color swatches
+        self.colorSwatchButtonLabel = QtGui.QLabel('Button')
+        self.colorSwatchButton = colorSwatch('#525252')
+
+        self.colorSwatchTextLabel = QtGui.QLabel('Text')
+        self.colorSwatchText = colorSwatch('#eeeeee')
+
+        self.colorSwatchButton.setChild(self.colorSwatchText)
+
+        #wire up color swatches
+        self.colorSwatchButton.save.connect(self.saveScriptEditor)
+        self.colorSwatchText.save.connect(self.saveScriptEditor)
+
+        for widget in [self.scriptEditorNameLabel,self.scriptEditorName,self.colorSwatchButtonLabel,self.colorSwatchButton,self.colorSwatchTextLabel,self.colorSwatchText]:
+            self.scriptEditorNameLayout.addWidget(widget)
+
+        #script
         self.scriptEditorScript = scriptEditorWidget()
         self.scriptEditorScript.setMinimumHeight(200)
         self.scriptEditorScript.setMinimumWidth(500)
-        self.scriptEditorScript.setReadOnly(True)
-        self.scriptEditorScript.setStyleSheet('background:#262626')
+
+        self.scriptEditorScript.save.connect(self.saveScriptEditor)
 
         scriptEditorHighlighter(self.scriptEditorScript.document())
 
@@ -217,27 +300,12 @@ class hotboxManager(QtGui.QWidget):
         scriptEditorFont.setFamily("Courier")
         scriptEditorFont.setStyleHint(QtGui.QFont.Monospace)
         scriptEditorFont.setFixedPitch(True)
-        scriptEditorFont.setPointSize(11)
+        scriptEditorFont.setPointSize(preferencesNode.knob('hotboxScriptEditorFontSize').value())
 
         self.scriptEditorScript.setFont(scriptEditorFont)
         self.scriptEditorScript.setTabStopWidth(4 * QtGui.QFontMetrics(scriptEditorFont).width(' '))
 
-            
-        #buttons
-        self.scriptEditorButtonsLayout = QtGui.QHBoxLayout()
-
-        self.scriptEditorImportButton = QtGui.QPushButton('Import')
-        self.scriptEditorSaveButton = QtGui.QPushButton('Save')
-        
-        self.scriptEditorImportButton.clicked.connect(self.importScriptEditor)
-        self.scriptEditorSaveButton.clicked.connect(self.saveScriptEditor)
-
-        self.scriptEditorSaveButton.setMaximumWidth(100)
-
-        self.scriptEditorButtonsLayout.addStretch()
-        self.scriptEditorButtonsLayout.addWidget(self.scriptEditorImportButton)
-        self.scriptEditorButtonsLayout.addWidget(self.scriptEditorSaveButton)
-        self.scriptEditorButtonsLayout.addStretch()
+        #assemble
 
         self.scriptEditorLayout.addLayout(self.archiveButtonsLayout)
         self.scriptEditorLayout.addLayout(self.scriptEditorNameLayout)
@@ -247,6 +315,7 @@ class hotboxManager(QtGui.QWidget):
         #--------------------------------------------------------------------------------------------------
         #main buttons
         #--------------------------------------------------------------------------------------------------
+
         self.mainButtonLayout = QtGui.QHBoxLayout()
 
         self.aboutButton = QtGui.QPushButton('?')
@@ -295,127 +364,144 @@ class hotboxManager(QtGui.QWidget):
         #set hotbox to current selection
         #--------------------------------------------------------------------------------------------------
 
+        self.enableScriptEditor(False,False)
+
         self.scopeComboBox.setCurrentIndex(1)
         self.scopeComboBox.setCurrentIndex(0)
-        
+        self.scopeComboBoxLastIndex = 0
 
         selection = nuke.selectedNodes()
-        if selection > 0:
+        if len(selection) > 0:
             classes = set(sorted([i.Class() for i in selection]))
             self.scopeComboBox.setCurrentIndex(max(min(len(classes)-1,1),0))
             for index in range(self.classesList.count()):
                 if self.classesList.item(index).text() == '-'.join(classes):
                     self.classesList.setCurrentRow(index)
-                    self.hotboxItemsTree.populateTree()
                     break
-
-        #--------------------------------------------------------------------------------------------------
-        #shortcuts
-        #--------------------------------------------------------------------------------------------------
-
-        #save
-        self.saveAction = QtGui.QAction(self)
-        self.saveAction.setShortcut(QtGui.QKeySequence(QtCore.Qt.CTRL + QtCore.Qt.Key_S))
-        self.saveAction.triggered.connect(self.saveScriptEditor)
-        self.addAction(self.saveAction)
 
     #--------------------------------------------------------------------------------------------------
     #classes list
     #--------------------------------------------------------------------------------------------------
-    
-    def builtClassesList(self, restoreSelection = False):
 
-        try:
-            if restoreSelection:
-                currentRow = self.classesList.currentRow()
-                currentItems = [self.classesList.item(index).text() for index in range(self.classesList.count())]
+    def buildClassesList(self, selectItem = None):
+        '''
+        Populate classes list with items.
+        '''
 
-            self.classesList.clear()
+        #if restore based on index, save current index before clearing the widget.
+        if isinstance(selectItem, bool) and selectItem:
+            itemIndex = self.classesList.currentRow()
 
-            self.path = self.rootLocation + self.scopeComboBox.currentText()
+        mode = self.scopeComboBox.currentText()
 
-            bgColor = '#3a3a3a'
+        self.selectionSpecific = mode not in ['All','Templates']
 
-            if self.scopeComboBox.currentText()== 'All':
-                bgColor = '#262626'
+        #clear selection
+        self.classesList.clearSelection()
 
-            self.classesList.setStyleSheet('background:%s'%bgColor)
+        #clear items tree
+        self.hotboxItemsTree.clearTree()
 
-            items = [folder for folder in sorted(os.listdir(self.path)) if os.path.isdir(self.path + '/' + folder) and folder[0] not in ['.','_']]
+        #clear list
+        self.classesList.clear()
 
-            if self.scopeComboBox.currentIndex() == 2:
-                self.hotboxItemsTree.populateTree()
+        self.path = self.rootLocation + mode
 
-            else:
-                self.classesList.addItems(items)
-                self.hotboxItemsTree.populateTree()
+        #color
+        color = self.activeColor
 
-            if restoreSelection:
-                newItems = [self.classesList.item(index).text() for index in range(self.classesList.count())]
-                if len(newItems) >= len(currentItems):
+        #disable if templates or all mode
+        if self.selectionSpecific:
+            self.classesList.setEnabled()
+        else:
+            self.classesList.setEnabled(False)
 
-                    for index, i in enumerate(newItems):
-                        if i not in currentItems:
-                            self.classesList.setCurrentRow(index)
-                            break
-        except:
-            pass
+        if self.selectionSpecific:
 
+            #sort classes found on disk
+            allClasses =sorted(os.listdir(self.path), key=lambda s: s.lower())
+            allClasses = [folder for folder in allClasses if os.path.isdir(self.path + '/' + folder) and folder[0] not in ['.','_']]
+
+            #add items
+            self.classesList.addItems(allClasses)
+
+        #populate buttons tree
+        self.hotboxItemsTree.populateTree()
+
+        #restore selection
+        if selectItem:
+
+            #select based on string
+            if isinstance(selectItem, basestring):
+                foundItems = self.classesList.findItems(selectItem, QtCore.Qt.MatchExactly)
+                if foundItems:
+                    self.classesList.setCurrentItem(foundItems[0])
+
+            #select based on index
+            if isinstance(selectItem, bool):
+
+                allItems = self.classesList.count()-1
+                itemIndex = min(allItems,itemIndex)
+
+                self.classesList.setCurrentRow(itemIndex)
 
     def addClass(self):
         '''
         Add a new nodeclass
         '''
-        if self.scopeComboBox.currentText() != 'All':
 
-            newClass = 'NewClass'
+        newClass = 'NewClass'
 
-            counter = 1
-            while os.path.isdir(self.path + '/' + newClass):
-                newClass = 'NewClass' + str(counter)
-                counter += 1
+        counter = 1
+        while os.path.isdir(self.path + '/' + newClass):
+            newClass = 'NewClass' + str(counter)
+            counter += 1
 
-            os.mkdir(self.path + '/' + newClass)
+        os.mkdir(self.path + '/' + newClass)
 
-            self.builtClassesList()
+        self.buildClassesList(newClass)
 
-            for item in [self.classesList.item(index) for index in range(self.classesList.count())]:
-                
-                if item.text() == newClass:
-                    item.setSelected(True)
-                    self.currentItem = item.text()
+        self.renameClass(True)
 
-            self.renameClass('new')
-
-
-    def removeClass(self):
+    def removeClass(self, className = None):
         '''
         Remove the selected nodeclass
         '''
-        if self.scopeComboBox.currentText() != 'All':
 
-            self.currentItem = self.classesList.currentItem().text()
-            oldFolder = self.path + '/_old'
-            if not os.path.isdir(oldFolder):
-                os.mkdir(oldFolder)
 
-            shutil.move(self.path + '/' + self.currentItem, self.path + '/_old/' + self.currentItem + '_' + datetime.datetime.now().strftime('%Y%m%d%H%M%S'))
+        if className:
+            selectedClass = className
+        else:
+            if not self.classesList.itemSelected():
+                return
+            selectedClass = self.classesList.currentItem().text()
 
-            self.builtClassesList(True)
+        oldFolder = self.path + '/_old'
+        if not os.path.isdir(oldFolder):
+            os.mkdir(oldFolder)
 
-    def renameClass(self, mode = 'rename'):
+        shutil.move(self.path + '/' + selectedClass, self.path + '/_old/' + selectedClass + '_' + dt.now().strftime('%Y%m%d%H%M%S'))
+
+        self.buildClassesList(True)
+
+    def renameClass(self, new = False):
         '''
         Rename the selected nodeclass
         '''
-        if self.scopeComboBox.currentText() != 'All':
 
-            if mode == 'rename':
-                self.currentItem = self.classesList.currentItem().text()
+        if not self.classesList.itemSelected():
+            return
 
-            global renameDialogInstance
-            if renameDialogInstance == None:
-                renameDialogInstance = renameDialog(mode)
-                renameDialogInstance.show()
+        currentClass = self.classesList.currentItem().text()
+
+        #kill any existing instances
+        global renameDialogInstance
+        if renameDialogInstance != None:
+            renameDialogInstance.closeRenameDialog()
+
+        #spawn new
+        renameDialogInstance = renameDialog(currentClass,new)
+        renameDialogInstance.show()
 
     #--------------------------------------------------------------------------------------------------
     #scriptEditor
@@ -427,134 +513,247 @@ class hotboxManager(QtGui.QWidget):
         file.
         '''
 
-
-        activeColor = '#3a3a3a'
-        lockedColor = '#262626'
-
         self.scriptEditorScript.savedText = ''
 
         if len(self.hotboxItemsTree.selectedItems) != 0:
+
             self.selectedItem = self.hotboxItemsTree.selectedItems[0]
-
-        if len(self.hotboxItemsTree.selectedItems) == 1:
-
             self.loadedScript = self.selectedItem.path
 
-            self.scriptEditorName.setStyleSheet('background:%s'%activeColor)
-            self.scriptEditorScript.setStyleSheet('background:%s'%activeColor)
+            #if item (not submenu)
+            if self.selectedItem.path.endswith('.py'):
 
-            try:
+                self.enableScriptEditor()
 
-                if not os.path.isdir(self.selectedItem.path):
+                #set attributes
+                name = getAttributeFromFile(self.loadedScript)
+                self.scriptEditorName.setText(name)
 
-                    #set name
-                    self.scriptEditorName.setText(self.selectedItem.richTextName)
+                #make sure the colorswatches will remain disabled in template mode
+                if not self.exitTemplateModeButton.isVisible():
 
-                    #set script
+                    textColor = getAttributeFromFile(self.loadedScript, 'textColor')
+                    self.colorSwatchText.setColor(textColor, adjustChild = False, indirect = True)
 
-                    openFile = open(self.loadedScript).readlines()
-                    for index, line in enumerate(openFile):
-                        if not line.startswith('#'):
-                            text = ''.join(openFile[index+1:]).replace('\t',' '*4)
-                            self.scriptEditorScript.savedText = text
-                            self.scriptEditorScript.setPlainText(text)
-                            break
-                    self.scriptEditorScript.setReadOnly(False)
+                    color = getAttributeFromFile(self.loadedScript, 'color')
+                    self.colorSwatchButton.setColor(color, adjustChild = False, indirect = True)
 
+                #set script
+                text = getScriptFromFile(self.loadedScript)
 
-                else:
+                self.scriptEditorScript.setPlainText(text)
+                self.scriptEditorScript.updateSavedText()
 
-                    #set name
-                    self.scriptEditorName.setText(open(self.loadedScript+'/_name.json').read())
-                    self.scriptEditorScript.setReadOnly(True)
-                    self.scriptEditorScript.setStyleSheet('background:%s'%lockedColor)
-                    self.scriptEditorScript.highlightCurrentLine()
-                    self.scriptEditorScript.clear()
+            #if submenu
+            else:
 
-                self.scriptEditorName.setReadOnly(False)
-
-            except:
-                pass
+                #set name
+                self.scriptEditorName.setText(open(self.loadedScript+'/_name.json').read())
+                self.enableScriptEditor(False, True)
 
         else:
 
             self.loadedScript = None
+            self.enableScriptEditor(False, False)
 
-            self.scriptEditorName.clear()
+    def enableScriptEditor(self, editor = True, name = True):
+        '''
+        Enable/Disable widgets based on selection.
+        '''
+
+        colors = [self.activeColor, self.lockedColor]
+
+        #script
+        self.scriptEditorScript.setReadOnly(1 - editor)
+        self.scriptEditorImportButton.setEnabled(editor)
+        self.scriptEditorScript.setStyleSheet('background:%s'%colors[1-editor])
+        if not editor:
             self.scriptEditorScript.clear()
-            self.scriptEditorName.setReadOnly(True)
-            self.scriptEditorScript.setReadOnly(True)
-            self.scriptEditorName.setStyleSheet('background:%s'%lockedColor)
-            self.scriptEditorScript.setStyleSheet('background:%s'%lockedColor)
+
+        #make sure the buttons are colorswatches are always disabled in template mode
+        editor = editor * (1-self.exitTemplateModeButton.isVisible())
+
+        for colorSwatch in [self.colorSwatchButton,self.colorSwatchText,self.colorSwatchButtonLabel,self.colorSwatchTextLabel]:
+            colorSwatch.setEnabled(editor)
+
+        #name
+        self.scriptEditorName.setReadOnly(1 - name)
+        self.scriptEditorNameLabel.setEnabled(name)
+        self.scriptEditorName.setStyleSheet('background:%s'%colors[1-name])
+
+        if not name:
+            self.scriptEditorName.clear()
+
+        #template button
+        self.scriptEditorTemplateMenu.enableMenuItems()
 
     def importScriptEditor(self):
         '''
         Set the current content of the script editor by importing an existing file. 
         '''
 
-        if self.loadedScript != None:
+        if self.scriptEditorImportButton.isEnabled():
 
             importFile = nuke.getFilename('select file to  import','*.py *.json')
+            #replace tabs with spaces
             text = open(importFile).read().replace('\t',' '*4)
             self.scriptEditorScript.setPlainText(text)
+            self.scriptEditorScript.setFocus()
 
-    def saveScriptEditor(self):
+
+    def saveScriptEditor(self, template = False):
         '''
         Save the current content of the script editor 
         '''
 
-        if self.loadedScript != None:
+        if not self.scriptEditorName.isReadOnly():
 
             name = self.scriptEditorName.text()
 
-            #check whether button or subfolder
-            if not os.path.isdir(self.selectedItem.path):
+            if template:
+                path = getFirstAvailableFilePath(self.templateLocation)
+                path += '.py'
+
+            else:
+                path = self.selectedItem.path
+
+            #file
+            if path.endswith('.py'):
+
+                text = self.scriptEditorScript.toPlainText()
+
+                #header
+                color = self.colorSwatchButton.isNonDefault(True)
+                textColor = self.colorSwatchText.isNonDefault(True)
+
+                newFileContent = fileHeader(name, color, textColor).getHeader() + text
 
                 #save to disk
-                text = self.scriptEditorScript.toPlainText()
-                newFileContent = fileHeader(name).getHeader() + text
-                currentFile = open(self.selectedItem.path, 'w')
+                currentFile = open(path, 'w')
                 currentFile.write(newFileContent)
                 currentFile.close()
 
-                #change border color
-                self.scriptEditorScript.savedText = text
-                self.scriptEditorScript.updateSaveState(True)
+                #change save status
+                self.scriptEditorScript.updateSavedText()
 
+            #menu
             else:
                 #save to disk
                 currentFile = open(self.selectedItem.path+'/_name.json', 'w')
                 currentFile.write(name)
-                currentFile.close() 
+                currentFile.close()
 
             self.selectedItem.setText(name)
 
+            #update template menu
+            if path.startswith(self.templateLocation):
+                self.scriptEditorTemplateMenu.initMenu()
+
+    #--------------------------------------------------------------------------------------------------
+    #Template mode
+    #--------------------------------------------------------------------------------------------------
+
+    def toggleTemplateMode(self):
+        '''
+        Toggle template mode on and off.
+        '''
+
+        #check whether entering or leaving template mode.
+        enter = True
+        if self.exitTemplateModeButton.isVisible():
+            enter = False
+
+        #switch between template dropdown and 'Exit template mode' buttons.
+        self.scriptEditorTemplateButton.setVisible(1-enter)
+        self.exitTemplateModeButton.setVisible(enter)
+
+        #store current selection
+        if enter:
+
+            #scope
+            self.lastSelectedScopeIndex = self.scopeComboBox.currentIndex()
+
+            #class
+            selectedClassItem = self.classesList.currentItem()
+            if selectedClassItem:
+                self.lastSelectedClassIndex = self.classesList.indexFromItem(selectedClassItem)
+            else:
+                self.lastSelectedClassIndex = None
+
+            #item
+            selectedItemIndexes = self.hotboxItemsTree.selectedIndexes()
+            if selectedItemIndexes:
+                self.lastSelectedItemIndex = selectedItemIndexes[0]
+            else:
+                self.lastSelectedItemIndex = None
+
+        for index in range(self.scopeComboBox.count())[::-1]:
+            self.scopeComboBox.removeItem(index)
+
+        #refill scopeComboBox
+        if enter:
+            #change items of scopeCombobox to 'Templates'
+            self.scopeComboBox.addItems(['Templates'])
+            self.scopeComboBox.setCurrentIndex(0)
+            self.scopeComboBox.setEditable(False)
+
+        else:
+            #update template menu
+            self.scriptEditorTemplateMenu.initMenu()
+
+            #change items of scopeCombobox to 'Single/Multiple/All'
+            self.scopeComboBox.addItems(self.scopeComboBoxItems)
+
+            #disable menu
+
+            #restore last selection
+            #scope
+            self.scopeComboBox.setCurrentIndex(self.lastSelectedScopeIndex)
+
+            #class
+            if self.lastSelectedClassIndex:
+                lastSelectedClassItem = self.classesList.itemFromIndex(self.lastSelectedClassIndex)
+                self.classesList.setCurrentItem(lastSelectedClassItem)
+
+            #item
+            if self.lastSelectedItemIndex:
+                self.hotboxItemsTree.setCurrentIndex(self.lastSelectedItemIndex)
+
+            #make sure the template menu is properly enabled/disabled
+            #this should would automatically, but fails when nothing is selected.
+            self.scriptEditorTemplateMenu.enableMenuItems()
 
     #--------------------------------------------------------------------------------------------------
     #Import/Export functions
     #--------------------------------------------------------------------------------------------------
 
-
     def exportHotboxArchive(self):
 
         #create zip
         nukeFolder = os.getenv('HOME').replace('\\','/') + '/.nuke/'
-        currentDate = datetime.datetime.now().strftime('%Y%m%d%H%M')
+        currentDate = dt.now().strftime('%Y%m%d%H%M')
         tempFolder = nukeFolder + 'W_hotboxArchiveImportTemp_%s/'%currentDate
         os.mkdir(tempFolder)
 
         archiveLocation = tempFolder + 'hotboxArchive_%s.tar.gz'%currentDate
 
-        with tarfile.open(archiveLocation, "w:gz") as tar:
+        from tarfile import open as openTarArchive
+
+        with openTarArchive(archiveLocation, "w:gz") as tar:
             tar.add(self.rootLocation, arcname=os.path.basename(self.rootLocation))
 
-        #encode
+        #read from file
         archive = open(archiveLocation)
         archiveContent = archive.read()
         archive.close()
 
+        #if clipboard
         if self.clipboardArchive.isChecked():
-            encodedArchive = base64.b64encode(archiveContent)
+
+            from base64 import b64encode
+
+            encodedArchive = b64encode(archiveContent)
+
             #save to clipboard
             QtGui.QApplication.clipboard().setText(encodedArchive)
 
@@ -562,6 +761,7 @@ class hotboxManager(QtGui.QWidget):
             #save to file
             exportFileLocation = nuke.getFilename('Export Archive', '*.hotbox')
             if exportFileLocation == None:
+                shutil.rmtree(tempFolder)
                 return
 
             if not exportFileLocation.endswith('.hotbox'):
@@ -572,7 +772,6 @@ class hotboxManager(QtGui.QWidget):
         #delete archive
         shutil.rmtree(tempFolder)
 
-
     def indexArchive(self, location, dict = False):
         if dict:
             fileList = {}
@@ -582,11 +781,11 @@ class hotboxManager(QtGui.QWidget):
         for root,b,files in os.walk(location):
             root = root.replace('\\','/')
             level = root.replace(location, '')
-        
+
             if '/_' not in level and '/.' not in level:
-        
+
                 newLevel = level
-        
+
                 if '_name.json' in files:
                     readName = open(root+'/_name.json').read()
                     if '/' in readName:
@@ -599,13 +798,13 @@ class hotboxManager(QtGui.QWidget):
                         newFile = file
                         if len(file) == 6:
                             openFile = open(root + '/' + file).readlines()
-            
+
                             nameTag = '# NAME: '
-            
+
                             for line in (openFile):
-            
+
                                 if line.startswith(nameTag):
-            
+
                                     newFile = line.split(nameTag)[-1].replace('\n','')
 
                                     if '/' in newFile:
@@ -625,29 +824,44 @@ class hotboxManager(QtGui.QWidget):
         (back)slashes. I ended up trowing in a lot of ".replace('\\','/')". I works, but it
         turned kinda messy...
         '''
+
+
+
         nukeFolder = os.getenv('HOME').replace('\\','/') + '/.nuke/'
-        currentDate = datetime.datetime.now().strftime('%Y%m%d%H%M')
+        currentDate = dt.now().strftime('%Y%m%d%H%M')
         tempFolder = nukeFolder + 'W_hotboxArchiveImportTemp_%s/'%currentDate
-        os.mkdir(tempFolder)
         archiveLocation = tempFolder + 'hotboxArchive_%s.tar.gz'%currentDate
 
-        if self.clipboardArchive.isChecked():
-            encodedArchive = QtGui.QApplication.clipboard().text()
-
-            archive = open(archiveLocation,'w')
-            archive.write(base64.b64decode(encodedArchive))
-            archive.close()
-
-        else:
+        #using a file
+        if not self.clipboardArchive.isChecked():
 
             importFileLocation = nuke.getFilename('select to import', '*.hotbox')
-            if importFileLocation == None:
+
+            #if canceled
+            if not importFileLocation:
                 return
 
+            os.mkdir(tempFolder)
             shutil.copy(importFileLocation, archiveLocation)
 
+        #using clipboard
+        else:
+
+            os.mkdir(tempFolder)
+
+            from base64 import b64decode
+
+            encodedArchive = QtGui.QApplication.clipboard().text()
+            decodedArchive = b64decode(encodedArchive)
+
+            archive = open(archiveLocation,'w')
+            archive.write(decodedArchive)
+            archive.close()
+
         #extract archive
-        archive = tarfile.open(archiveLocation)
+        from tarfile import open as openTarArchive
+
+        archive = openTarArchive(archiveLocation)
         importedArchiveLocation = tempFolder + 'archiveExtracted' + currentDate
         os.mkdir(importedArchiveLocation)
         archive.extractall(importedArchiveLocation)
@@ -655,9 +869,7 @@ class hotboxManager(QtGui.QWidget):
 
         importedArchiveLocation += '/'
 
-
         importedArchiveLocation = importedArchiveLocation.replace('\\','/')
-
 
         #Make sure the current archive is healthy
         for i in ['Single','Multiple','All']:
@@ -678,6 +890,7 @@ class hotboxManager(QtGui.QWidget):
                 if not i[0].endswith('/_name.json'):
                     newItems.append(i)
         newItems = [[i[0].replace('\\','/'),i[1].replace('\\','/')] for i in newItems]
+
         #gather information about which folders are already present on disk, and which should be created
         allFoldersNeeded = {os.path.dirname(i[1]).replace('\\','/'): os.path.dirname(i[0]).replace('\\','/') for i in newItems}
         allFoldersNeededInverted = {allFoldersNeeded[i] : i for i in allFoldersNeeded.keys()}
@@ -689,7 +902,7 @@ class hotboxManager(QtGui.QWidget):
                 if dirname1 != dirname2:
                     newItems = [[i[0],i[1].replace(dirname1,dirname2)] for i in newItems]
 
-        #properly sort the list 
+        #properly sort the list
         newItemsDict = {i[0]:i[1] for i in newItems}
         newItemsSorted = sorted([i[0] for i in newItems])
         newItems = [[i, newItemsDict[i]] for i in newItemsSorted]
@@ -710,16 +923,16 @@ class hotboxManager(QtGui.QWidget):
 
             if not os.path.isdir(baseFolder):
                 os.mkdir(baseFolder)
-            
+
             missingFolders = splitFilePath[prefixFolders:-1]
             for folderName in splitFilePath[prefixFolders:-1]:
 
-                
+
                 #check folders inside existing folder
                 for folder in [dir for dir in os.listdir(baseFolder) if len(dir) == 3 and dir[0] not in ['.','_']]:
                     nameFile = baseFolder + '/' + folder + '/_name.json'
                     if open(nameFile).read() == folderName:
-                        
+
                         baseFolder = baseFolder +'/' + folder
                         missingFolders = missingFolders[1:]
                         break
@@ -727,7 +940,6 @@ class hotboxManager(QtGui.QWidget):
                 #is the first folder wasn't found, don't bother lookign for its subfolder
                 if missingFolders == splitFilePath[prefixFolders:-1]:
                     break
-
 
             #create the missing folders and put _name files in them
             for folder in missingFolders:
@@ -737,15 +949,14 @@ class hotboxManager(QtGui.QWidget):
                 shutil.copy(importedArchiveLocation + os.path.dirname(i[0]).replace('\\','/') + '/_name.json',baseFolder + '/_name.json')
 
             currentFiles = [file[:3] for file in os.listdir(baseFolder) if file[0] not in ['.','_']]
-            fileName =  str((len(currentFiles) + 1)).zfill(3)+ '.py' 
+            fileName =  str((len(currentFiles) + 1)).zfill(3)+ '.py'
             shutil.copy(importedArchiveLocation + '/' + i[0], baseFolder + '/' + fileName)
-
 
         #delete archive
         shutil.rmtree(tempFolder)
 
         #reinitiate
-        self.builtClassesList(True)
+        self.buildClassesList()
 
     #--------------------------------------------------------------------------------------------------
     #
@@ -765,6 +976,461 @@ class hotboxManager(QtGui.QWidget):
             aboutDialogInstance.close()
         aboutDialogInstance = aboutDialog()
         aboutDialogInstance.show()
+
+
+#------------------------------------------------------------------------------------------------------
+#Classes List
+#------------------------------------------------------------------------------------------------------
+
+class QListWidgetCustom(QtGui.QListWidget):
+
+    def __init__(self, parentClass):
+        super(QListWidgetCustom, self).__init__()
+
+        self.enabled = False
+        self.parentClass = parentClass
+
+    def setEnabled(self, mode = True):
+
+        #only proceed if the mode will be changed
+        if self.enabled == mode:
+            return
+
+        self.enabled = mode
+
+
+        #change color
+        color = [self.parentClass.lockedColor,self.parentClass.activeColor][int(mode)]
+        self.setStyleSheet('background-color : %s'%color)
+
+    def itemSelected(self):
+
+        return bool(self.currentItem())
+
+
+#------------------------------------------------------------------------------------------------------
+#Color Swatch
+#------------------------------------------------------------------------------------------------------
+
+class colorSwatch(QtGui.QLabel):
+
+    #signals
+    save = QtCore.Signal()
+
+    def __init__(self, defaultColor):
+        super(colorSwatch, self).__init__()
+
+        self.color = None
+
+        self.enabled = False
+        self.active = False
+
+        self.child = None
+        self.parent = None
+
+        self.size = 12
+        self.setFixedHeight(self.size)
+        self.setFixedWidth(self.size)
+
+        self.painter = QtGui.QPainter()
+
+        #set line color to black
+        self.lineColor = '#000000'
+
+        #painter
+        self.paintPen = QtGui.QPen()
+        self.paintPen.setColor(QtGui.QColor(0,0,0))
+        self.paintPen.setWidthF(1.5)
+
+        self.defaultColor = defaultColor
+        self.defaultColorInverted = self.invertColor(self.defaultColor)
+        self.lockedColor = '#262626'
+
+        self.setColor(adjustChild = False, indirect = True)
+
+        #Tooltip
+        self.assignToolTip()
+
+    def assignToolTip(self, child = False):
+        '''
+        Set the
+        '''
+        childSpecificToolTip = ['','','']
+
+        if child:
+            childSpecificToolTip = ['text ',
+                                    " When set to default this color will adjust upon altering the button's color in order to remain readable."
+                                    " This behaviour can be turned off by disabling 'Auto adjust text color' in the preferences",
+                                    " Invert default color."]
+
+        self.toolTipText = ("<p>Change the button's %scolor.</p>"
+                        "<p>/ indicates the color is set to default.%s</p>"
+                        "<ul>"
+                        "<li><b>LMB</b> Open color picker to set a custom color.</li>"
+                        "<li><b>RMB</b> Revert to default color.%s</li>"
+                        "<li><b>CTRL + LMB</b>  Paste color from clipboard.</li>"
+                        "<li><b>CTRL + RMB</b> Copy color to clipboard.</li>"
+                        "<li><b>SHIFT + LMB</b> Set to color of selected node.</li>"
+                        "<li><b>SHIFT + RMB</b> Copy color to clipboard, formatted as a 32bit integer.</li>"
+                        "</ul>"%(childSpecificToolTip[0],childSpecificToolTip[1],childSpecificToolTip[2])
+                        )
+
+        self.setToolTip(self.toolTipText)
+    #--------------------------------------------------------------------------------------------------
+    # Events
+    #--------------------------------------------------------------------------------------------------
+
+    def saveEvent(self):
+        '''
+        Emit save signal that can be picked up by parent class
+        '''
+        self.save.emit()
+
+    def enterEvent(self, event):
+        '''
+        Set Active to true when the mouse starts hovering over it
+        '''
+        if not self.enabled:
+            return False
+
+        self.active = True
+        return True
+
+    def leaveEvent(self,event):
+        '''
+        Set Active to false when the mouse stops hovering over it
+        '''
+        if self.enabled:
+            self.active = False
+        return False
+
+    def mouseReleaseEvent(self,event):
+        '''
+        Set the color of the button
+        '''
+        if self.enabled and self.active:
+
+            #Control key pressed
+            if QtGui.QApplication.keyboardModifiers() == QtCore.Qt.ShiftModifier:
+
+                #left click
+                if event.button() == QtCore.Qt.LeftButton:
+                    self.colorFromSelection()
+
+                #right click
+                else:
+                    self.copyColorInterface()
+
+            #Control key pressed
+            elif QtGui.QApplication.keyboardModifiers() == QtCore.Qt.ControlModifier:
+
+                #left click
+                if event.button() == QtCore.Qt.LeftButton:
+                    #paste color form clipboard
+                    self.pasteColorHex()
+
+                #right click
+                else:
+                    #copy color to clipboard
+                    self.copyColorHex()
+
+            #Control key not pressed
+            else:
+                #left click
+                if event.button() == QtCore.Qt.LeftButton:
+                    #set custom color
+                    self.getColor()
+
+                #right click
+                else:
+                    #set to default
+                    color = None
+
+                    #if already set to default, toggle between inverted and regular
+                    if self.parent:
+                        if self.color == self.defaultColor:
+                            color = self.defaultColorInverted
+
+                    self.setColor(color)
+
+            return True
+
+        return False
+
+    #--------------------------------------------------------------------------------------------------
+    # Color
+    #--------------------------------------------------------------------------------------------------
+    def setEnabled(self, mode):
+        '''
+        lock/unlock the colorswatch.
+        '''
+
+        self.enabled = mode
+        self.setColor(adjustChild = False, indirect = True)
+
+    def getColor(self):
+        '''
+        Open color dialog to let the user pick a color
+        '''
+
+        #convert current color to Nuke notation
+        rgbColor = W_hotbox.hex2rgb(self.color)
+        interfaceColor = W_hotbox.rgb2interface(rgbColor)
+
+        color = nuke.getColor(interfaceColor)
+
+        #if changed, proceed
+        #ideally, you would register whenever the user cancels the color picker
+        #usually cancel would return False. However...
+        #when setting an initial color, pressing cancel wont return False no more...
+        if not color == interfaceColor:
+            rgbColor = W_hotbox.interface2rgb(color)
+            hexColor = W_hotbox.rgb2hex(rgbColor)
+
+            self.setColor(hexColor)
+
+    def setColor(self, color = None, adjustChild = True, indirect = False):
+        '''
+        Set color of the swatch.
+        'Indirect' parameter reflects whether the method was called directly by the user, or as a side effect.
+        '''
+
+        colorChanged = False
+
+        #if swatch not enabled, set to locked color
+        if not self.enabled:
+            color = self.lockedColor
+
+        else:
+            #if no color specified, set to default color
+            if not color:
+                color = self.defaultColor
+
+            #if new color is the same as the current color
+            if color != self.color:
+                colorChanged = True
+
+        #set color
+        self.color = color
+        self.setStyleSheet('QLabel {border: 1px solid %s; background-color : %s}'%(self.lineColor, self.color))
+
+        #set child color. If the color of the child was changed, make sure the colorChanged variable is forced to True
+        if adjustChild:
+            colorChanged = bool(colorChanged + self.setChildColor())
+
+        #save changes to file if conditions are met.
+        if self.enabled and colorChanged and not indirect:
+            self.saveEvent()
+
+
+    def setChildColor(self):
+        '''
+        Change the color of another colorswatch whenever this swatch changes color
+        '''
+
+        #check if its relevant to compare colors
+        if not self.child or not preferencesNode.knob('hotboxAutoTextColor').value():
+            return False
+
+        if not self.isNonDefault(True) and self.child.isNonDefault():
+            return False
+
+        #if self is default, and child is default
+        if not self.isNonDefault(True) and not self.child.isNonDefault():
+            self.child.setColor(indirect = True)
+            return True
+
+
+        #parent color
+        rgbParentColor = W_hotbox.hex2rgb(self.color)
+        hsvParentColor = colorsys.rgb_to_hsv(rgbParentColor[0],rgbParentColor[1],rgbParentColor[2])
+
+        #child color
+        childColor = self.child.color
+        rgbChildColor =  W_hotbox.hex2rgb(childColor)
+        hsvChildColor = list(colorsys.rgb_to_hsv(rgbChildColor[0],rgbChildColor[1],rgbChildColor[2]))
+
+        #check if diffenence is significant enough to be readable
+        threshold = 255/2
+
+
+        if abs(hsvParentColor[2] - hsvChildColor[2]) < threshold:
+
+            color = [self.child.defaultColorInverted,self.child.defaultColor][int(bool(self.child.isNonDefault(True)))]
+
+            #set child color
+            self.child.setColor(color, indirect = True)
+
+            return True
+
+        return False
+
+    def isNonDefault(self, ignoreInverted = False):
+        '''
+        Return the current color. If that's similar to the default color, return None.
+        '''
+
+        if not ignoreInverted:
+            #if set to inverted default
+            if self.parent:
+                if self.color == self.defaultColorInverted:
+                    return None
+
+        #if default
+        if self.color == self.defaultColor:
+            return None
+
+        #else, return the current color
+        else:
+            return self.color
+
+    def setChild(self, child):
+        '''
+
+        '''
+        if isinstance(child, colorSwatch):
+            self.child = child
+            self.child.parent = self
+            self.child.assignToolTip(True)
+
+    #--------------------------------------------------------------------------------------------------
+    #Copy/Paste
+    #--------------------------------------------------------------------------------------------------
+
+    def copyColorHex(self):
+        '''
+        Copy current color to clipboard
+        '''
+
+        QtGui.QApplication.clipboard().setText(self.color)
+
+    def copyColorInterface(self):
+        '''
+        Copy current color to clipboard, formatted as a 32 bit value as used by nuke for interface colors.
+        '''
+
+        #convert hex to interface
+        rgbColor = W_hotbox.hex2rgb(self.color)
+        color = str(W_hotbox.rgb2interface(rgbColor))
+
+        QtGui.QApplication.clipboard().setText(color)
+
+    def pasteColorHex(self):
+        '''
+        Paste color from clipboard
+        '''
+
+        color = QtGui.QApplication.clipboard().text()
+
+        #check if clipboard content is a color formatted as a 32 bit value as used by nuke for interface colors.
+        #if so, convert to hex
+        if color.isdigit():
+            rgbColor = W_hotbox.interface2rgb(int(color))
+            color = W_hotbox.rgb2hex(rgbColor)
+
+        #check if clipboard content is a valid hex color
+        if re.search('^#(?:[0-9a-fA-F]{2}){3}$', color):
+            self.setColor(color)
+
+    def colorFromSelection(self):
+        '''
+        Set color to color of selected node
+        '''
+
+        selection = nuke.selectedNodes
+        if not selection:
+            return
+
+        interfaceColor = W_hotbox.getTileColor()
+        rgbColor = W_hotbox.interface2rgb(interfaceColor)
+        color = W_hotbox.rgb2hex(rgbColor)
+
+        self.setColor(color)
+
+    #--------------------------------------------------------------------------------------------------
+    #Line
+    #--------------------------------------------------------------------------------------------------
+
+    def invertColor(self, color):
+        '''
+        Retrun color with inverted brightness.
+        '''
+
+        rgbColor =  W_hotbox.hex2rgb(color)
+        hsvColor = list(colorsys.rgb_to_hsv(rgbColor[0],rgbColor[1],rgbColor[2]))
+
+        hsvColor[2] = 255 - hsvColor[2]
+
+        #convert back to hex
+        #the rgb2hex function in the W_hotbox module expects normalized rgb values
+
+        rgbColor = [float(value) / 255 for value in colorsys.hsv_to_rgb(hsvColor[0], hsvColor[1], hsvColor[2])]
+
+        return W_hotbox.rgb2hex(rgbColor)
+
+    def paintEvent(self, event):
+        '''
+        Draw diagonal line on top of colorswatch in case the swatch is set to it's default color.
+        '''
+        if self.enabled:
+            #if default color paint diagonal line
+            if not self.isNonDefault():
+                self.painter.begin(self)
+                self.painter.setPen(self.paintPen)
+                self.painter.drawLine(self.size-1, 1, 1, self.size-1)
+                self.painter.end()
+
+#------------------------------------------------------------------------------------------------------
+#File Name
+#------------------------------------------------------------------------------------------------------
+
+class scriptEditorNameWidget(QtGui.QLineEdit):
+    '''
+    Subclassed QLineEdit.
+    Added some functionality to check whether the text was changed and to save.
+    '''
+
+    #signals
+    save = QtCore.Signal()
+
+    def __init__(self):
+        super(scriptEditorNameWidget, self).__init__()
+
+        self.savedText = ''
+        self.editingFinished.connect(self.saveEvent)
+
+    #--------------------------------------------------------------------------------------------------
+    #Subclassed methods/events
+    #--------------------------------------------------------------------------------------------------
+
+    def saveEvent(self):
+        '''
+        Emit save signal that can be picked up by parent class.
+        Make sure text is actually changed and valid before emitting a signal.
+        '''
+
+        #check if changed
+        if self.text() != self.savedText:
+
+            #if new name is valid, save to disk
+            textFormatted = self.text().strip()
+            if textFormatted:
+                self.setText(textFormatted)
+                self.save.emit()
+
+            #if not valid, revert back to saved
+            else:
+                self.setText(self.savedText)
+
+    def setText(self,text):
+        '''
+        Set text
+        '''
+
+        self.savedText = text
+        #keep default behaviour
+        QtGui.QLineEdit.setText(self,text)
+
 #------------------------------------------------------------------------------------------------------
 #Script Editor
 #------------------------------------------------------------------------------------------------------
@@ -774,30 +1440,102 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
     Script editor widget.
     '''
 
-    #Signal that will be emitted when the user has changed the text
-    userChangedEvent = QtCore.Signal()
+    #signals
+    save = QtCore.Signal()
 
     def __init__(self):
         super(scriptEditorWidget, self).__init__()
 
         self.savedText = ''
-        self.saveColor = 'grey'
+        self.savedName = ''
 
         #Setup line numbers
         self.lineNumberArea = LineNumberArea(self)
         self.blockCountChanged.connect(self.updateLineNumberAreaWidth)
-        self.textChanged.connect(self.updateSaveState)
         self.updateRequest.connect(self.updateLineNumberArea)
         self.updateLineNumberAreaWidth()
 
         #highlight line
+        self.textChanged.connect(self.highlightCurrentLine)
         self.cursorPositionChanged.connect(self.highlightCurrentLine)
+
+        self.updateLineNumberAreaWidth()
+
+    #--------------------------------------------------------------------------------------------------
+    #events
+    #--------------------------------------------------------------------------------------------------
+
+    def focusOutEvent(self, event):
+        '''
+        Actions executed when widget loses focus.
+        '''
+
+        #inherit default behaviour
+        QtGui.QPlainTextEdit.focusOutEvent(self, event)
+
+        self.highlightCurrentLine()
+
+        #save to file
+        if not self.isReadOnly():
+            if self.isChanged():
+                self.save.emit()
+
+        return True
+
+    #indents
+
+    def keyPressEvent(self, event):
+        '''
+        Custom actions for specific keystrokes
+        '''
+
+        #if Tab convert to Space
+        if event.key() == 16777217:
+            self.indentation('indent')
+
+        #if Shift+Tab remove indent
+        elif event.key() == 16777218:
+
+            self.indentation('unindent')
+
+        #if BackSpace try to snap to previous indent level
+        elif event.key() == 16777219:
+            if not self.unindentBackspace():
+                QtGui.QPlainTextEdit.keyPressEvent(self, event)
+
+        #if enter or return, match indent level
+        elif event.key() in [16777220 ,16777221]:
+            #QtGui.QPlainTextEdit.keyPressEvent(self, event)
+            self.indentNewLine()
+        else:
+            QtGui.QPlainTextEdit.keyPressEvent(self, event)
+
+     #--------------------------------------------------------------------------------------------------
+
+    def isChanged(self):
+        '''
+        Check whether current text is the same as the text saved to disk.
+        '''
+
+        currentText = self.toPlainText()
+
+        if currentText == self.savedText:
+            return False
+
+        return True
+
+    def updateSavedText(self):
+        '''
+        Update the variable that holds the text as it is saved to disk.
+        '''
+
+        self.savedText = self.toPlainText()
 
     #--------------------------------------------------------------------------------------------------
     #Line Numbers
 
-    #While researching the implementation of line number, I had a look at Nuke's Blinkscript node.
-    #This node  has an excellent C++ editor, built with Qt.
+    #While researching the implementation of line numbers, I had a look at Nuke's Blinkscript interface.
+    #This node has an excellent C++ editor, built with Qt.
     #The source code for that editor can be found here (or in Nuke's installation folder):
     #thefoundry.co.uk/products/nuke/developers/100/pythonreference/nukescripts.blinkscripteditor-pysrc.html
     #I stripped and modified the useful bits of the line number related parts of the code
@@ -852,10 +1590,12 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
 
         while (block.isValid() and top <= event.rect().bottom()):
 
+            #default grey
             textColor = QtGui.QColor(155, 155, 155)
 
             if blockNumber == currentLine and self.hasFocus():
-                textColor = QtGui.QColor(255, 170, 0)
+                #current line
+                textColor = QtGui.QColor(255, 170, 0, 255)
 
             painter.setPen(textColor)
 
@@ -868,41 +1608,9 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
             bottom = top + int(self.blockBoundingRect(block).height())
             blockNumber += 1
 
-
-    #--------------------------------------------------------------------------------------------------
-    #Auto indent
-    #--------------------------------------------------------------------------------------------------
-
-    def keyPressEvent(self, event):
-        '''
-        Custom actions for specific keystrokes
-        '''
-
-        #if Tab convert to Space
-        if event.key() == 16777217:
-            self.indentation('indent')
-
-        #if Shift+Tab remove indent
-        elif event.key() == 16777218:
-
-            self.indentation('unindent')
-
-        #if BackSpace try to snap to previous indent level
-        elif event.key() == 16777219:
-            if not self.unindentBackspace():
-                QtGui.QPlainTextEdit.keyPressEvent(self, event)
-
-        #if enter or return, match indent level
-        elif event.key() in [16777220 ,16777221]:
-            #QtGui.QPlainTextEdit.keyPressEvent(self, event)
-            self.indentNewLine()
-        else:
-            QtGui.QPlainTextEdit.keyPressEvent(self, event)
-
     #--------------------------------------------------------------------------------------------------
 
     def getCursorInfo(self):
-
 
         self.cursor = self.textCursor()
 
@@ -1065,26 +1773,6 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
     #current line hightlighting
     #--------------------------------------------------------------------------------------------------
 
-    def updateSaveState(self, saved = False):
-        '''
-        Change border color according to state of text
-        '''
-
-        if saved:
-            newsaveColor = 'green'
-
-        else:
-
-            if self.toPlainText() == self.savedText:
-                newsaveColor =  'grey'
-            else:
-                newsaveColor = 'orange'
-
-        if newsaveColor != self.saveColor:
-            self.saveColor = newsaveColor
-
-        self.highlightCurrentLine()
-
     def highlightCurrentLine(self):
         '''
         Highlight currently selected line
@@ -1093,18 +1781,10 @@ class scriptEditorWidget(QtGui.QPlainTextEdit):
 
         selection = QtGui.QTextEdit.ExtraSelection()
 
-        #change depending on save state
-        if self.saveColor == 'orange':
-            lineColor = QtGui.QColor(88, 88, 88, 255)
+        lineColor = QtGui.QColor(88, 88, 88, 255)
 
-        elif self.saveColor == 'green':
-            lineColor = QtGui.QColor(44, 88, 44, 255)
-            self.saveColor = 'grey'
-        else:
-            lineColor = QtGui.QColor(44, 44, 44, 255)
-
-        if not self.hasFocus():
-            lineColor = QtGui.QColor(88, 88, 88, 0)
+        if not self.hasFocus() or self.isReadOnly():
+            lineColor.setAlpha(0)
 
         selection.format.setBackground(lineColor)
         selection.format.setProperty(QtGui.QTextFormat.FullWidthSelection, True)
@@ -1142,7 +1822,8 @@ class scriptEditorHighlighter(QtGui.QSyntaxHighlighter):
             'keyword': self.format([238,117,181],'bold'),
             'string': self.format([242, 136, 135]),
             'comment': self.format([143, 221, 144 ]),
-            'numbers': self.format([174, 129, 255])
+            'numbers': self.format([174, 129, 255]),
+            'placeholders': self.format([255, 190, 0]),
             }
 
         self.keywords = [
@@ -1165,10 +1846,15 @@ class scriptEditorHighlighter(QtGui.QSyntaxHighlighter):
         self.tri_single = (QtCore.QRegExp("'''"), 1, self.styles['comment'])
         self.tri_double = (QtCore.QRegExp('"""'), 2, self.styles['comment'])
 
+        self.placeholders = [
+            'KNOBNAME','NODECLASS','NODENAME','VALUE','EXPRESSION'
+            ]
+
         #rules
         rules = []
 
         rules += [(r'\b%s\b' % i, 0, self.styles['keyword']) for i in self.keywords]
+        rules += [(r'\b%s\b' % i, 0, self.styles['placeholders']) for i in self.placeholders]
         rules += [(i, 0, self.styles['keyword']) for i in self.operatorKeywords]
         rules += [(r'\b%s\b' % i, 0, self.styles['numbers']) for i in self.numbers]
 
@@ -1261,6 +1947,162 @@ class scriptEditorHighlighter(QtGui.QSyntaxHighlighter):
             return True
         else:
             return False
+
+#------------------------------------------------------------------------------------------------------
+#Template Button
+#------------------------------------------------------------------------------------------------------
+
+class scriptEditorTemplateMenu(QtGui.QMenu):
+
+    def __init__(self, parentObject):
+
+        super(scriptEditorTemplateMenu,self).__init__()
+
+        self.hotbox = parentObject
+
+        #set default template folder
+        folder = preferencesNode.knob('hotboxLocation').value()
+        if folder[-1] != '/':
+            folder += '/'
+        self.templateFolder = folder + 'Templates'
+
+        self.initMenu()
+
+    def initMenu(self):
+
+        self.clear()
+        self.menuItems = []
+
+        #add menu entries pointing to templates stored on disk
+        self.addUserTemplates(folder = self.templateFolder)
+
+        self.addSeparator()
+
+        #add function to manage templates
+        self.addQAction(self, 'Save current script as template', self.saveAsTemplate)
+        self.addQAction(self, 'Manage templates', self.hotbox.toggleTemplateMode)
+
+    def addUserTemplates(self, folder, parent = None):
+        '''
+        Scan template folder and add an item for every template.
+        '''
+
+        if not parent:
+            parent = self
+
+        for path in [folder + '/' + file for file in os.listdir(folder) if file[0] not in ['_','.']]:
+
+            name = getAttributeFromFile(path)
+
+            #make sure name won't be longer than 'Save current script as template'
+            maxNameLength = 31
+
+            #file
+            if os.path.isfile(path):
+
+                #trim name if to long
+                if len(name) > maxNameLength:
+                    name = name[:maxNameLength - 3] + '...'
+
+                self.addQAction(parent,name,path)
+
+            #dir
+            else:
+
+                #trim name if to long
+                maxNameLength -= 3
+                if len(name) > maxNameLength:
+                    name = name[:maxNameLength - 3] + '...'
+
+                #create new QMenu
+                menu = QtGui.QMenu()
+                menu.setTitle(name)
+
+                #add QMenu to parent
+                parent.addMenu(menu)
+                self.menuItems.append(menu)
+
+                #Run this function again, with new Qmenu as menu
+                self.addUserTemplates(parent = menu, folder = path)
+
+    def addQAction(self, parent, name, function):
+        '''
+        Create new action and add to menu.
+        '''
+
+        #create new QAction
+        action = QtGui.QAction(parent)
+        action.setText(name)
+
+        #bind function
+
+        #if a script is passed instead of a function, turn it into a function
+        if not callable(function):
+            script = function
+            function = lambda : self.insertTemplate(script)
+
+        action.triggered.connect(function)
+
+        #addToMenu
+        parent.addAction(action)
+        self.menuItems.append(action)
+
+    def insertTemplate(self, path):
+        '''
+        Insert template script into script editor
+        '''
+
+        #get script
+        template = getScriptFromFile(path)
+
+        #add proper indentation
+        template = self.adjustTemplate(template)
+
+        self.hotbox.scriptEditorScript.insertPlainText(template)
+
+    def saveAsTemplate(self):
+        '''
+        Save current script as a template
+        '''
+
+        self.hotbox.saveScriptEditor(True)
+
+    def adjustTemplate(self, script):
+        '''
+        Modify template script based on current cursor position
+        '''
+        cursor = self.hotbox.scriptEditorScript.textCursor()
+        cursorPosition = cursor.positionInBlock()
+
+        textBeforeCursor = cursor.block().text()[:cursorPosition]
+        textBeforeCursorNoIndent = textBeforeCursor.lstrip()
+
+        #if cursor at beginning of block, return original script
+        if textBeforeCursor == '':
+            return script
+
+        #find current indentation, rounded by 4
+        indentLevel = ' '*(4*((len(textBeforeCursor) - len(textBeforeCursorNoIndent))/4))
+
+        if textBeforeCursorNoIndent != '':
+            script = '\n' + script
+
+        script = script.replace('\n','\n'+indentLevel)
+
+        return script
+
+    def enableMenuItems(self):
+        '''
+        Enable items based on state of script editor.
+        '''
+
+        #check if script editor widget is accessible
+        mode = 1 - self.hotbox.scriptEditorScript.isReadOnly()
+
+        #skip last item (enter template mode)
+        for menuItem in self.menuItems[:-1]:
+            menuItem.setEnabled(mode)
+
 #------------------------------------------------------------------------------------------------------
 #Tree View
 #------------------------------------------------------------------------------------------------------
@@ -1270,6 +2112,8 @@ class QTreeViewCustom(QtGui.QTreeView):
 
         super(QTreeViewCustom,self).__init__()
 
+        self.enabled = False
+
         self.clipboard = []
 
         self.parentClass = parentClass
@@ -1277,67 +2121,107 @@ class QTreeViewCustom(QtGui.QTreeView):
         self.header().hide()
         self.expandsOnDoubleClick = True
 
-        self.setDragDropMode(QtGui.QAbstractItemView.InternalMove)
-        self.setDragEnabled(True)
-        self.setDropIndicatorShown(True)
-
-
-        self.setDragDropMode(QtGui.QAbstractItemView.InternalMove)
-        self.setDragEnabled(True)
-        self.setDropIndicatorShown(True)
-
         self.dataModel = QtGui.QStandardItemModel()
         self.root = self.dataModel.invisibleRootItem()
-
-        self.root.setDropEnabled(True)
 
         self.setModel(self.dataModel)
         self.setSelectionMode(QtGui.QAbstractItemView.SelectionMode.SingleSelection)
 
-
+        #to check whether the tree was populated from scratch of updated
+        self.scope = ''
+        self.previousScope = ''
 
         #Unfortunatley Nuke 10 crashes on startup when using the following line:
         #self.selectionModel().selectionChanged.connect(self.setSelectedItems)
         #Therefore I had to do this weird construction where the setModel Method is subclassed.
+
+    #--------------------------------------------------------------------------------------------------
 
     def setModel(self, model):
         super(QTreeViewCustom, self).setModel(model)
         self.connect(self.selectionModel(),QtCore.SIGNAL("selectionChanged(QItemSelection, QItemSelection)"), self.setSelectedItems)
 
     #--------------------------------------------------------------------------------------------------
+    def setEnabled(self, mode = True):
 
-    def populateTree(self, restoreSelection = None):
+        self.enabled = mode
+
+        #change color
+        color = [self.parentClass.lockedColor,self.parentClass.activeColor][int(mode)]
+        self.setStyleSheet('background-color : %s'%color)
+
+
+    def populateTree(self):
         '''
         Fill the QTreeView with items associated with the selected nodeclass
-        ''' 
-
-
-        #empty the tree before (re)filling it
-        #self.dataModel.clear() #unfortunately this crashes Nuke
-        for i in range(self.dataModel.rowCount()):
-            self.dataModel.takeRow(0)
+        '''
 
         #----------------------------------------------------------------------------------------------
-           
-        if self.parentClass.scopeComboBox.currentText() == 'All':
+
+        #store current scope as previous scope
+        self.previousScope = self.scope
+
+        self.setEnabled(True)
+
+        #find current scope
+        if not self.parentClass.selectionSpecific:
             self.scope = self.parentClass.path + '/'
 
         else:
 
             classItems = self.parentClass.classesList.selectedItems()
             if len(classItems) == 0:
+                self.setEnabled(False)
                 return
 
             classItem = classItems[0].text() + '/'
 
             self.scope = self.parentClass.path + '/' + classItem
 
+        if self.previousScope == self.scope:
+            self.update = True
+        else:
+            self.update = False
+
+        if self.update:
+            #find currently collapsed menus
+            self.collapsedMenus = []
+
+            for button in self.buttonsList.values():
+
+                index = self.dataModel.indexFromItem(button)
+
+                if not self.isExpanded(index):
+                    self.collapsedMenus.append(button.path)
+
         #----------------------------------------------------------------------------------------------
+
+        #reset buttons list (all items will be replaced with new items when rebuilding anyway)
+        self.buttonsList = {}
+        self.clearTree()
+
         #Fill the buttonstree if there is an item selected in the classescolumn, or the mode is set to all.
-        if self.parentClass.scopeComboBox.currentText() == 'All' or self.parentClass.classesList.selectedItems() != 0:
+        if not self.parentClass.selectionSpecific or self.parentClass.classesList.selectedItems() != 0:
             self.addChild(self.root,self.scope)
 
+        #Expand/Collapse
         self.expandAll()
+
+        #closeall the menus when updating
+        if self.update:
+            for path in self.collapsedMenus:
+                if path in self.buttonsList.keys():
+                    button = self.buttonsList[path]
+                    index = self.dataModel.indexFromItem(button)
+                    self.collapse(index)
+
+    def clearTree(self):
+        '''
+        empty the tree
+        self.dataModel.clear() #unfortunately this crashes Nuke
+        '''
+        for row in range(self.dataModel.rowCount()):
+            self.dataModel.takeRow(0)
 
     def addChild(self, parent, path):
         '''
@@ -1347,33 +2231,25 @@ class QTreeViewCustom(QtGui.QTreeView):
         for i in sorted(os.listdir(path)):
             if i[0] not in ['_','.']:
 
+                if path[-1] != '/':
+                    path += '/'
 
-                while path[-1] != '/':
-                    path = path + '/'
-                curPath = path + i
+                filePath = path + i
 
-                if os.path.isdir(curPath):
-                    try:
-                        name = open(curPath +'/_name.json').read()
-                    except:
-                        name =''
+                name = getAttributeFromFile(filePath)
 
-                else:
-                    if len(i) != 6:
-                        continue
-                    nameTag = '# NAME: '
+                if not name:
+                    return
 
-                    for line in open(curPath).readlines():
-
-                        if line.startswith(nameTag):
-                            name = line.split(nameTag)[-1].replace('\n','')
-                            break
-
-                child = QStandardItemChild(name,curPath)
+                child = QStandardItemChild(name,filePath)
                 parent.appendRow(child)
 
-                if os.path.isdir(curPath):
-                    self.addChild(child, curPath)
+                #store in the list for easy access
+                self.buttonsList[filePath] = child
+
+                if os.path.isdir(filePath):
+                    self.addChild(child, filePath)
+
 
     def setSelectedItems(self):
 
@@ -1381,126 +2257,252 @@ class QTreeViewCustom(QtGui.QTreeView):
         self.selectedItemsPaths = set([i.path for i in self.selectedItems])
 
         self.parentClass.loadScriptEditor()
-    
-    #--------------------------------------------------------------------------------------------------
-    #Drag and Drop
-    #--------------------------------------------------------------------------------------------------
 
-    def iterateFolder(self, path):
+    def moveItem(self, direction):
+        '''
+        Change the order of buttons by clicking the up/down buttons
+        '''
 
-        while path[-1] == '/':
-            path = path[:-1]
+        #get currently selected index and item
+        self.currentItem = self.selectedItems[0]
+        self.currentIndex = self.currentItem.index()
 
-        for i in [path + '/' + i for i in os.listdir(path) if i[0] not in ['.','_']]:
-            self.folderContent.insert(0, i )
-            if os.path.isdir(i):
-                self.iterateFolder(i)
+        #get target index and item
+        self.getNextIndex(direction, self.currentIndex)
 
-    def dragEnterEvent(self,event):
-        index =  self.indexAt(event.pos())
-        item = self.dataModel.itemFromIndex(index)
-        self.draggedFrom = item.path
-        event.acceptProposedAction()
+        #if direction was set to three, the item is supposed to leave the subdir from the top.
+        if direction == 2:
+            direction = 0
 
-    def dropEvent(self,event):
-        index =  self.indexAt(event.pos())
-        item = self.dataModel.itemFromIndex(index)
+        #if current item is the first or last (depending on direction) in list
+        #abort the operation, as theres no point in trying to move
+        if self.nextItem is None:
+            return
 
+        sourceFolder = os.path.dirname(self.currentItem.path)
+        sourceFile = os.path.basename(self.currentItem.path)
 
-        self.draggedTo = item.path
+        destinationFolder = os.path.dirname(self.nextItem.path)
+        destinationFile = os.path.basename(self.nextItem.path)
 
-        folder = False
-        if os.path.isdir(self.draggedTo):
-            folder = True
-            self.draggedTo += '/'
-
-        #calculate whether the item was dropped underneath, above or onto the target
-        dropPosY = event.pos().y()
-        dropPosLocal = dropPosY%12
-
-        extention = '.py'
-        if os.path.isdir(self.draggedFrom):
-            extention = ''
-
-        if dropPosLocal < 6:
-            #above
-            offset = 0
+        if sourceFolder == destinationFolder:
+            #stay in same (sub)menu
+            filesSourceFolder = []
+            filesDestinationFolder = [destinationFile]
 
         else:
-            #underneath
-            offset = 1
-        print os.path.basename(self.draggedTo), os.path.basename(self.draggedFrom)
-        if os.path.dirname(self.draggedTo) == os.path.dirname(self.draggedFrom):
+            filesSourceFolder = self.indexFolder(sourceFolder)
+            filesDestinationFolder = self.indexFolder(destinationFolder)
 
-            if int(os.path.basename(self.draggedTo)[:3]) > int(os.path.basename(self.draggedFrom)[:3]):
-                offset -= 1
+            if sourceFolder == sorted([sourceFolder,destinationFolder])[0]:
+                #enter submenu
+                filesSourceFolder = filesSourceFolder[filesSourceFolder.index(sourceFile):]
 
-        if folder:
-            if not 2 <= dropPosLocal <= 9:
-                folder = False
+                if not direction:
+                #if entering a subfolder from the bottom
+                    filesDestinationFolder = []
+                    #+1 to name of the file, so the source file will appear at the bottom of the submenu
+                    #without overwriting the dest item
+                    destinationFile = str(int(destinationFile[:3])+ 1).zfill(3) + destinationFile[3:]
+            else:
 
-
-        #iterate over all the files stored on disk and rename them
-        self.folderContent = []        
-        self.iterateFolder(self.scope)
-
-        #rename everything to tmp
-        for i in self.folderContent:
-            os.rename(i,i+'.tmp')
-
-        #rename/move the files that were reordered by the user
-        if not folder:
-            baseName = int(os.path.basename(self.draggedTo)[:3]) + offset
-            baseName = max(1,baseName)
-            baseName = str(baseName).zfill(3) + extention
-        else:
-            baseName = '001' + extention
-
-        subfolders = os.path.dirname(self.draggedTo).replace(os.path.dirname(self.scope),'').split('/')
-        subfoldersString = ''.join(['/%s.tmp'%i for i in subfolders if i != ''])
-        destinationFolder = os.path.dirname(self.scope) + subfoldersString + '/'
-        destinationLocation = destinationFolder + baseName
-
-        try:
-            os.rename(self.draggedFrom + '.tmp', destinationLocation)
-        except:
-            pass
-
-        #iterate over content as its currently stored on disk
-        self.folderContent = []
-        for baseFolder, folders, files in os.walk(self.scope):
-            allContent =  []
-            for i in folders + files:
-                if '.tmp' in i and i[0] not in ['.','_']:
-                    allContent.append(i)
-            self.folderContent.insert(0,[baseFolder,sorted(allContent)])
-
-        #remove the tmp tag from all the other files and give them a proper name again
-        for content in self.folderContent:
-            baseFolder = content[0]
-            counter = 1
-            for i in content[1]:
-                
-                if '.py' in i:
-                    fileExtention = '.py'
+                if direction:
+                #if exiting a subfolder at the bottom
+                    filesSourceFolder = []
                 else:
-                    fileExtention = ''
+                #exit submenu at top
+                    filesDestinationFolder = filesDestinationFolder[filesDestinationFolder.index(destinationFile):]
 
-                newName = str(counter).zfill(3) 
-                currentFolderContent = os.listdir(baseFolder)
-                while newName in currentFolderContent or newName + '.py' in currentFolderContent:
-                    counter += 1
-                    newName = str(counter).zfill(3) 
-            
-                counter += 1
-                os.rename(baseFolder + '/' + i,baseFolder + '/' + newName + fileExtention)
+        if sourceFile in filesSourceFolder:
+            filesSourceFolder.remove(sourceFile)
 
-        #make sure the content of both the source and destination directory are named correctly
-        for i in list(set([destinationFolder, os.path.dirname(self.draggedFrom)])):
-            repairHotbox(folder = i, recursive = False, message = False)
+        #make sure destination is same type (file/submenu) as the file being moved
+        #if len = 6 (###.py) it's a file, otherwise it must be a submenu (###)
+        sourceType = len(sourceFile) == 6
+        destinationType = len(destinationFile) == 6
 
-        #repopulate the tree
-        self.populateTree(event.pos())
+        if destinationType != sourceType:
+            if sourceType:
+                destinationFile = destinationFile + '.py'
+            else:
+                destinationFile = destinationFile[:3]
+
+        tmpExtention = '_tmp'
+
+        #temporarily rename affected files in affected folders
+
+        tmpFiles = [[],[]]
+
+        files = [filesDestinationFolder,filesSourceFolder]
+
+        folders = [destinationFolder,sourceFolder]
+
+        for index in range(2):
+
+            for file in files[index]:
+
+                tmpFile = file + tmpExtention
+                tmpFiles[index].append(tmpFile)
+
+                folder = folders[index]
+                origPath = folder + '/' + file
+                tmpPath = folder + '/' + tmpFile
+
+                #rename files and update lookupTable to keep track of files
+                self.renameButton(origPath, tmpPath)
+
+                #if removing a file from a menu by it's top, the submenu will have to be renamed (as the file will take
+                #the menu's place). When renaming this menu, we have to update the paths of the source folder as well,
+                #otherwise we will not be able to find the files anymore.
+
+                if origPath == folders[1-index]:
+                    folders[1-index] = tmpPath
+
+        #rename mainfile
+
+        origPath = folders[1] + '/' + sourceFile
+        newPath = folders[0] + '/' + destinationFile
+
+        self.renameButton(origPath, newPath)
+        #save to restore selection later on
+        targetItem = newPath
+
+        #give all the tmp files proper names
+
+        for index in range(2):
+
+            folder = folders[index]
+
+            currentFiles = [i[:3] for i in self.indexFolder(folder)]
+
+            file = '001'
+
+            for tmpFile in tmpFiles[index]:
+
+                #submenu or button
+                extension = ''
+                if '.' in tmpFile:
+                    extension = '.py'
+
+                while file in currentFiles:
+                    file = str(int(file)+1).zfill(3)
+
+                currentFiles.append(file)
+
+                origPath = folder + '/' + tmpFile
+                newPath = folder + '/' + file + extension
+
+                #when moving a file from a submenu, make sure the source folder gets renamed after renaming the tmp'd
+                #submene, otherwise the tmp'd files living inside that submenu cannot be found.
+                if index == 0 and extension == '' and origPath == folders[1]:
+                    folders[1] = newPath
+
+                if origPath == folders[0]:
+                    targetItem = newPath + '/' + destinationFile
+
+                self.renameButton(origPath, newPath)
+
+        self.populateTree()
+
+        self.restoreSelection(targetItem)
+
+    def renameButton(self,origPath,newPath):
+        '''
+        Rename files and update paths to keep track of buttons
+        '''
+        #rename actual file
+        os.rename(origPath, newPath)
+
+        #update path for button objects
+
+        for path in [path for path in self.buttonsList.keys() if path.startswith(origPath)]:
+
+            button = self.buttonsList[path]
+
+            updatedPath = path.replace(origPath,newPath)
+            button.path = updatedPath
+
+            #add updated path to dict
+            self.buttonsList[updatedPath] = button
+
+            #delete outdated path from dict
+            del self.buttonsList[path]
+
+    def restoreSelection(self, path = ''):
+
+        if not path:
+            return
+        if not os.path.exists(path):
+            return
+
+        #restore selection
+        self.setCurrentIndex(self.buttonsList[path].index())
+
+    def indexFolder(self, folder):
+        '''
+        Return a list of files currently present in a given folder.
+        Only properly named files will be returned.
+        '''
+        files = []
+        for file in os.listdir(folder):
+            if file[0] not in ['_','.'] and len(file) in [3,6]:
+                files.append(file)
+
+        return files
+
+    def getNextIndex(self, direction, index):
+        '''
+        Get the index of the item next to the current item
+        '''
+
+        if direction == 2:
+            self.nextItem = self.currentItem.parent()
+
+        else:
+            if direction:
+
+                #if current item is the submenu and the move-down button is triggered
+                forceExpanded = False
+                if not os.path.isfile(self.currentItem.path):
+
+                    item = self.dataModel.itemFromIndex(index)
+
+                    if self.isExpanded(index) and item.hasChildren():
+                        self.setExpanded(index,False)
+                        forceExpanded = True
+
+                self.nextIndex = self.indexBelow(index)
+
+                if forceExpanded:
+                    self.setExpanded(index,True)
+
+            else:
+                self.nextIndex = self.indexAbove(index)
+
+            self.nextItem = self.dataModel.itemFromIndex(self.nextIndex)
+
+            #if moving down and current item is last item in a subfolder with no item underneath it.
+            if self.nextItem is None and direction:
+                parentItem = self.currentItem.parent()
+                if parentItem is not None:
+                    newBaseName = str(int(os.path.basename(parentItem.path))+1).zfill(3)
+                    parentItem.path = os.path.dirname(parentItem.path) + '/' + newBaseName
+                    self.nextItem = parentItem
+
+            #exit
+            if self.nextItem is None:
+                return
+
+            #if submenu
+            #skip item if expanded
+            if os.path.dirname(self.nextItem.path) == os.path.dirname(self.currentItem.path):
+                if not os.path.isfile(self.nextItem.path):
+                    if not self.nextItem.hasChildren():
+                        self.nextItem.path += '/001' + os.path.basename(self.currentItem.path)[3:]
+                    else:
+                        if direction:
+                            if self.isExpanded(self.nextIndex) and self.nextItem.hasChildren():
+                                self.getNextIndex(direction, self.nextIndex)
 
     #--------------------------------------------------------------------------------------------------
     #hotbox items tree actions
@@ -1511,23 +2513,26 @@ class QTreeViewCustom(QtGui.QTreeView):
         Create new item for selected nodeclass
         '''
 
+        folderPath = self.scope
+
+        #if item selected, place the new underneath
+        selectedIndexes = self.selectedIndexes()
+        if len(selectedIndexes) != 0:
+            selectedItem = self.dataModel.itemFromIndex(selectedIndexes[0])
+            folderPath = os.path.dirname(selectedItem.path) + '/'
+
         #make sure all the files inside the folder are named correctly
-        repairHotbox(folder = self.scope, recursive = False, message = False)
+        repairHotbox(folder = folderPath, recursive = False, message = False)
 
         #loop over content of folder to find an appropriate name for the new item
-        counter = 1
-        newFileName = '001'
-        while newFileName in [i[:3] for i in sorted(os.listdir(self.scope)) if i[0] not in ['.','_']]:
-            counter += 1
-            newFileName = str(counter).zfill(3)
-
-        itemPath = self.scope + newFileName
+        itemPath = getFirstAvailableFilePath(folderPath)
 
         if not folder:
             itemName = 'New Item'
+            itemPath += '.py'
 
             newFileContent = fileHeader(itemName).getHeader()
-            currentFile = open(itemPath + '.py', 'w')
+            currentFile = open(itemPath, 'w')
             currentFile.write(newFileContent)
             currentFile.close()
 
@@ -1539,56 +2544,53 @@ class QTreeViewCustom(QtGui.QTreeView):
             currentFile.write(itemName)
             currentFile.close()
 
-
-
         self.populateTree()
 
-        #select the new item
-        self.collapseAll()
-        self.setCurrentIndex(self.indexAt(QtCore.QPoint(1,(self.dataModel.rowCount()-1)*12)))
-        self.expandAll()
+        self.restoreSelection(itemPath)
 
-        print
 
     def removeItem(self):
         '''
-        Move selected items to the _old folder.
+        Move selected item to the _old folder.
         '''
-        try:
 
-            currentItem = self.selectedIndexes()[0].row()
+        selectedIndex = self.selectedIndexes()[0]
+        currentItem = self.dataModel.itemFromIndex(selectedIndex)
 
-            for path in  self.selectedItemsPaths:
+        #find next item to be selected after current item is deleted
+        nextItemPath = None
 
-                oldFolder = self.scope + '_old/'
+        nextItem = self.dataModel.itemFromIndex(self.indexBelow(selectedIndex))
+        if nextItem is None:
+            nextItem = self.dataModel.itemFromIndex(self.indexAbove(selectedIndex))
 
-                if not os.path.isdir(oldFolder):
-                    os.mkdir(oldFolder)
+        if nextItem is not None:
+            nextItemPath = nextItem.path
 
-                currentTime = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-                newFileName = currentTime
+        #remove selected file
+        oldFolder = self.scope + '_old/'
 
-                counter = 1
-                while newFileName in sorted(os.listdir(oldFolder)):
-                    newFileName = currentTime + '_%s'%str(counter).zfill(3)
-                    counter += 1
+        if not os.path.isdir(oldFolder):
+            os.mkdir(oldFolder)
 
-                shutil.move(path, oldFolder + newFileName)
+        currentTime = dt.now().strftime('%Y%m%d%H%M%S')
+        newFileName = currentTime
 
-            #make sure all the files inside the folder are named correctly
-            changedFolder = os.path.dirname(path)
-            repairHotbox(folder = changedFolder, recursive = False, message = False)
+        counter = 1
+        while newFileName in sorted(os.listdir(oldFolder)):
+            newFileName = currentTime + '_%s'%str(counter).zfill(3)
+            counter += 1
 
-            self.populateTree()
+        shutil.move(currentItem.path, oldFolder + newFileName)
 
-            #select the new item
-            if currentItem > 0:
-                self.collapseAll()
-                self.setCurrentIndex(self.indexAt(QtCore.QPoint(1,(currentItem-1)*12)))
-                self.expandAll()
+        #make sure all the files inside the folder are named correctly
+        changedFolder = os.path.dirname(currentItem.path)
+        repairHotbox(folder = changedFolder, recursive = False, message = False)
 
-        except:
-            pass
+        self.populateTree()
+
+        self.restoreSelection(nextItemPath)
+
 
     def copyItem(self):
         '''
@@ -1623,15 +2625,20 @@ class QTreeViewCustom(QtGui.QTreeView):
                     counter += 1
                     newFileName = str(counter).zfill(3)
 
+                newPath = self.scope + newFileName
+
+                #if file
                 if path.endswith('.py'):
-                    shutil.copy2(path, self.scope + newFileName + '.py')
+                    newPath += '.py'
+                    shutil.copy2(path, newPath)
 
+                #if menu
                 else:
-                    shutil.copytree(path, self.scope + newFileName )
-
-
+                    shutil.copytree(path, newPath)
 
             self.populateTree()
+
+            self.restoreSelection(newPath)
 
     def duplicateItem(self):
         '''
@@ -1647,9 +2654,10 @@ class QStandardItemChild(QtGui.QStandardItem):
 
         super(QStandardItemChild, self).__init__()
 
-        self.richTextName = name
+        #self.richTextName = name
 
         #convert rich text to plain text
+
         if '<' in name:
 
             richToPlain = re.compile('<[^>]*>').sub('',name)
@@ -1676,80 +2684,141 @@ class QStandardItemChild(QtGui.QStandardItem):
 
         self.path = path
 
-        self.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsDragEnabled)
+        self.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
 
+        #change color is submenu
         if os.path.isdir(self.path):
-            self.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsDragEnabled | QtCore.Qt.ItemIsDropEnabled)
+            self.setBackground(QtGui.QColor(45,45,45))
 
         parentObject = self.parent()
         if parentObject != None:
             self.currentGuiPath = parentObject.path
 
 class QLabelButton(QtGui.QLabel):
-    def __init__(self,name):
+    '''
+    Custom class to make a Qlabel function as a button.
+    '''
+
+    #signals
+    clicked = QtCore.Signal()
+
+    def __init__(self,name,linkedWidget = None):
         super(QLabelButton, self).__init__()
-        
-        self.setToolTip(name)
+
+        self.linkedWidget = linkedWidget
 
         iconFolder = preferencesNode.knob('hotboxIconLocation').value()
+
         while iconFolder[-1] == '/':
             iconFolder = iconFolder[:-1]
 
         self.imageFile = '%s/hotbox_%s'%(iconFolder,name)
-        
-        self.setPixmap(QtGui.QPixmap('%s_neutral.png'%self.imageFile))
 
+        #check if icon is present. If not, display '?'
+        if not os.path.isfile('%s_neutral.png'%self.imageFile):
+            self.imageFile = None
+
+            self.setText('<font size = "6">?</font>')
+            self.setAlignment(QtCore.Qt.AlignCenter)
+            self.setStyleSheet('color: #717171')
+
+        #add image
+        else:
+            self.updateIcon()
+
+        #format name
+        if name != name.lower():
+
+            newName = ''
+
+            for character in  name:
+                if character in string.ascii_uppercase:
+                    character = ' ' + character.lower()
+                newName = newName + character
+
+            name = newName
+
+        #tooltip
+        self.setToolTip(name)
+
+    #--------------------------------------------------------------------------------------------------
+    #Events
+    #--------------------------------------------------------------------------------------------------
 
     def enterEvent(self, event):
-        self.setPixmap(QtGui.QPixmap('%s_hover.png'%self.imageFile))
+        self.updateIcon('hover')
 
     def leaveEvent(self,event):
-        self.setPixmap(QtGui.QPixmap('%s_neutral.png'%self.imageFile))
+        self.updateIcon()
 
     def mousePressEvent(self,event):
-        self.setPixmap(QtGui.QPixmap('%s_clicked.png'%self.imageFile))
+        self.updateIcon('clicked')
 
     def mouseReleaseEvent(self,event):
-        self.emit(QtCore.SIGNAL('buttonClicked()'))
-        self.setPixmap(QtGui.QPixmap('%s_hover.png'%self.imageFile))
+        #emit signal
+
+        self.updateIcon('hover')
+
+        #if button has a linkedwidget set, check if that widget is enabled.
+        #if not, dont emit clicked signal
+
+        if self.linkedWidget:
+            if not self.linkedWidget.enabled:
+                return
+
+        self.clicked.emit()
+
+    #--------------------------------------------------------------------------------------------------
+
+    def updateIcon(self, mode = 'neutral'):
+
+        if self.imageFile:
+            path = '%s_%s.png'%(self.imageFile,mode)
+            self.setPixmap(QtGui.QPixmap(path))
 
 #------------------------------------------------------------------------------------------------------
 #rename  dialog
 #------------------------------------------------------------------------------------------------------
 
-class renameDialog(QtGui.QWidget):
+class renameDialog(QtGui.QDialog):
     '''
     Dialog that will pop up when the rename button in the manager is clicked.
     '''
 
-    def __init__(self, mode = 'rename'):
+    def __init__(self, currentName, new = False):
 
         super(renameDialog, self).__init__()
 
-        self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
+        self.currentName = currentName
 
-        if mode == 'new':
+        self.setWindowFlags(QtCore.Qt.Tool | QtCore.Qt.WindowStaysOnTopHint)
+
+        self.new = new
+
+        self.hotboxManager = hotboxManagerInstance
+
+        #window title
+        if self.new:
             renameButtonLabel = 'Create'
-            self.setWindowTitle('Assign new hotbox class')
+            self.setWindowTitle('New class')
 
         else:
             renameButtonLabel = 'Rename'
-            self.setWindowTitle('Rename hotbox class')
+            self.setWindowTitle('Rename class')
 
+        #layout
         masterLayout = QtGui.QVBoxLayout()
         buttonsLayout = QtGui.QHBoxLayout()
 
         self.newNameLineEdit = QtGui.QLineEdit()
-        self.newNameLineEdit.setText(hotboxManagerInstance.currentItem) 
+        self.newNameLineEdit.setText(self.currentName)
         self.newNameLineEdit.selectAll()
-
-
 
         renameButton = QtGui.QPushButton(renameButtonLabel)
         cancelButton = QtGui.QPushButton('Cancel')
 
         renameButton.clicked.connect(self.renameButtonClicked)
-        cancelButton.clicked.connect(self.closeRenameDialog)
+        cancelButton.clicked.connect(self.cancelRenameDialog)
 
         buttonsLayout.addWidget(renameButton)
         buttonsLayout.addWidget(cancelButton)
@@ -1758,23 +2827,44 @@ class renameDialog(QtGui.QWidget):
         masterLayout.addLayout(buttonsLayout)
         self.setLayout(masterLayout)
 
-
+        #shortcuts
         self.enterAction = QtGui.QAction(self)
         self.enterAction.setShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Return))
         self.enterAction.triggered.connect(self.renameButtonClicked)
         self.addAction(self.enterAction)
 
+        #move to screen center
         self.adjustSize()
-
         screenRes = QtGui.QDesktopWidget().screenGeometry()
         self.move(QtCore.QPoint(screenRes.width()/2,screenRes.height()/2)-QtCore.QPoint((self.width()/2),(self.height()/2)))
 
-
     def renameButtonClicked(self):
 
-        shutil.move(hotboxManagerInstance.path + '/' + hotboxManagerInstance.currentItem, hotboxManagerInstance.path + '/' + self.newNameLineEdit.text())
+        currentPath = self.hotboxManager.path + '/' + self.currentName
+        newPath = self.hotboxManager.path + '/' + self.newNameLineEdit.text()
 
-        hotboxManagerInstance.builtClassesList(True)
+        if currentPath != newPath:
+            counter = 1
+            while os.path.isdir(newPath):
+
+                splitPath = os.path.basename(newPath).split('_')
+                if len(splitPath) > 1:
+                    suffix = splitPath[-1]
+                    if suffix.isdigit():
+                        counter = int(suffix) + 1
+
+                newPath = self.hotboxManager.path + '/' + self.newNameLineEdit.text() + '_%s'%counter
+                counter += 1
+
+            shutil.move(currentPath, newPath)
+
+            self.hotboxManager.buildClassesList(os.path.basename(newPath))
+
+        self.closeRenameDialog()
+
+    def cancelRenameDialog(self):
+        if self.new:
+            self.hotboxManager.removeClass(self.currentName)
 
         self.closeRenameDialog()
 
@@ -1788,7 +2878,7 @@ class renameDialog(QtGui.QWidget):
 #Dialog with contact informaton
 #------------------------------------------------------------------------------------------------------
 
-class aboutDialog(QtGui.QWidget):
+class aboutDialog(QtGui.QFrame):
     '''
     Dialog that will show some information about the current version of the Hotbox.
     '''
@@ -1797,58 +2887,82 @@ class aboutDialog(QtGui.QWidget):
 
         super(aboutDialog, self).__init__()
 
-        self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
-
-        masterLayout = QtGui.QVBoxLayout()
+        self.setWindowFlags(QtCore.Qt.ToolTip)
 
         self.setFixedHeight(250)
         self.setFixedWidth(230)
 
+        self.setFrameStyle(QtGui.QFrame.Plain | QtGui.QFrame.StyledPanel)
+
+        #logo
         aboutHotbox = QtGui.QLabel()
         aboutIcon = preferencesNode.knob('hotboxIconLocation').value().replace('\\','/') + '/icon.png'
         aboutIcon = aboutIcon.replace('//icon.png','/icon.png')
         aboutHotbox.setPixmap(QtGui.QPixmap(aboutIcon))
 
+        # version
         aboutVersion = QtGui.QLabel(version)
         aboutDate = QtGui.QLabel(releaseDate)
+
+        #clickable links
         aboutDownload = QWebLink('Nukepedia','http://www.nukepedia.com/python/ui/w_hotbox/')
         aboutName = QtGui.QLabel('Wouter Gilsing')
         aboutMail = QWebLink('woutergilsing@hotmail.com','mailto:woutergilsing@hotmail.com?body=')
         aboutWeb = QWebLink('woutergilsing.com','http://www.woutergilsing.com')
 
-
+        #set fonts
         fontSize = 0.3
         font = preferencesNode.knob('UIFont').value()
         mediumFont = QtGui.QFont(font, fontSize * 40)
         smallFont = QtGui.QFont(font, fontSize * 30)
 
-
-        aboutVersion.setFont(smallFont)
-        aboutDate.setFont(smallFont)
         aboutDownload.setFont(mediumFont)
-        aboutName.setFont(smallFont)
-        aboutName.setAlignment(QtCore.Qt.AlignRight)
-        aboutMail.setFont(smallFont)
-        aboutMail.setAlignment(QtCore.Qt.AlignRight)
-        aboutWeb.setFont(smallFont)
-        aboutWeb.setAlignment(QtCore.Qt.AlignRight)
+
+        for label in [aboutVersion,aboutDate,aboutName,aboutMail,aboutWeb]:
+            label.setFont(smallFont)
+
+        #assemble interface
+        masterLayout = QtGui.QVBoxLayout()
 
         masterLayout.addWidget(aboutHotbox)
+
         masterLayout.addWidget(aboutVersion)
-        masterLayout.addWidget(aboutDate) 
+        masterLayout.addWidget(aboutDate)
         masterLayout.addSpacing(40)
-        masterLayout.addWidget(aboutDownload)
-        masterLayout.addSpacing(20) 
+        masterLayout.addLayout(self.wrapInLayout(aboutDownload))
+        masterLayout.addSpacing(20)
+
         masterLayout.addWidget(aboutName)
-        masterLayout.addWidget(aboutMail)
-        masterLayout.addWidget(aboutWeb)
+        masterLayout.addLayout(self.wrapInLayout(aboutMail,True))
+        masterLayout.addLayout(self.wrapInLayout(aboutWeb,True))
 
         self.setLayout(masterLayout)
 
+        #move to screen center
         self.adjustSize()
-
         screenRes = QtGui.QDesktopWidget().screenGeometry()
         self.move(QtCore.QPoint(screenRes.width()/2,screenRes.height()/2)-QtCore.QPoint((self.width()/2),(self.height()/2)))
+
+    def mouseReleaseEvent(self,event):
+        '''
+        Close window when clicked. Like a splashscreen.
+        '''
+        self.close()
+
+    def wrapInLayout(self, weblink, alignment = None):
+        '''
+        Wrap label/Weblink in a layout, to make sure it will be aligned properly and only the actual text is clickable.
+        '''
+
+        layout = QtGui.QHBoxLayout()
+        layout.addWidget(weblink)
+
+        if alignment:
+            weblink.setAlignment(QtCore.Qt.AlignRight)
+
+        layout.insertStretch(bool(alignment))
+
+        return layout
 
 
 class QWebLink(QtGui.QLabel):
@@ -1868,17 +2982,18 @@ class QWebLink(QtGui.QLabel):
     def composeEmail(self):
 
         import platform
-
+        operatingSystem = platform.system()
+        
         hotboxVersion = 'W_hotbox v%s (%s)'%(version, releaseDate)
         nukeVersion = 'Nuke ' + nuke.NUKE_VERSION_STRING
 
-        osType = platform.system()
 
-        if osType == 'Windows':
+
+        if operatingSystem == 'Windows':
             osName = 'Windows'
             osVersion = platform.win32_ver()[0]
 
-        elif osType == 'Darwin':
+        elif operatingSystem == 'Darwin':
             osName = 'OSX'
             osVersion = platform.mac_ver()[0]
         else:
@@ -1903,23 +3018,32 @@ class QWebLink(QtGui.QLabel):
         self.deactivate()
 
     def mouseReleaseEvent(self,event):
-
-        webbrowser.open(self.link)
+        openURL(self.link)
 
 #------------------------------------------------------------------------------------------------------
 #Top portion of the files that will be generated
 #------------------------------------------------------------------------------------------------------
 
 class fileHeader():
-    def __init__(self,name):
+    def __init__(self, name, color = None, textColor = None):
+
         dividerLine = '-'*106
-        self.text = '\n'.join(['#%s'%dividerLine,
-                                '#',
-                                '# AUTOMATICALLY GENERATED FILE TO BE USED BY W_HOTBOX',
-                                '#',
-                                '# NAME: %s'%name,
-                                '#',
-                                '#%s\n\n'%dividerLine])
+        text = ['#%s'%dividerLine,
+            '#',
+            '# AUTOMATICALLY GENERATED FILE TO BE USED BY W_HOTBOX',
+            '#',
+            '# NAME: %s'%name,
+            '#',
+            '#%s\n\n'%dividerLine]
+
+        # add extra attributes if available
+        if textColor:
+            text.insert(5,'# TEXTCOLOR: %s'%textColor)
+        if color:
+            text.insert(5,'# COLOR: %s'%color)
+
+        self.text = '\n'.join(text)
+
     def getHeader(self):
         return self.text
 
@@ -2063,7 +3187,7 @@ def clearHotboxManager(sections = ['Single','Multiple','All']):
         except:
             pass
 
-    #Rebuilt folders
+    #Rebuild folders
     for i in sections:
         clearProgress += clearProgressIncrement
         clearProgressBar.setProgress(int(clearProgress))
@@ -2073,6 +3197,66 @@ def clearHotboxManager(sections = ['Single','Multiple','All']):
             os.mkdir(hotboxLocation + i)
         except:
             pass
+
+#--------------------------------------------------------------------------------------------------
+# Commenly used functions
+#--------------------------------------------------------------------------------------------------
+
+def getAttributeFromFile(path, attribute = 'name'):
+    '''
+    Scan file for the appropriate attribute.
+    By default attribute is name. If no attribute found, return None
+    '''
+
+
+    if os.path.isfile(path):
+        tag = '# %s: '%attribute.upper()
+        for line in open(path).readlines():
+
+            if not line.startswith('#'):
+                break
+
+            if line.startswith(tag):
+                result = line.split(tag)[-1].replace('\n','')
+                return result
+
+    else:
+        if attribute == 'name':
+            nameFile = path +'/_name.json'
+            if os.path.isfile(nameFile):
+                result = open(nameFile).read()
+                return result
+
+    return None
+
+def getScriptFromFile(path):
+    '''
+    Extract the appropriate fucntion from the file. If no name found, return None
+    '''
+    if os.path.isfile(path):
+
+        openFile = open(path).readlines()
+
+        for index, line in enumerate(openFile):
+
+            if not line.startswith('#'):
+                script = ''.join(openFile[index+1:]).replace('\t',' '*4)
+
+                return script
+
+    return None
+
+def getFirstAvailableFilePath(folder):
+    '''
+    loop over content of folder to find an appropriate name for the new item
+    '''
+
+    newFileName = '001'
+
+    while newFileName in [i[:3] for i in sorted(os.listdir(folder)) if i[0] not in ['.','_']]:
+        newFileName = str(int(newFileName)+1).zfill(3)
+
+    return folder + newFileName
 
 #--------------------------------------------------------------------------------------------------
 
