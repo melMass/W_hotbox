@@ -1,3 +1,13 @@
+# DISCLAIMER
+
+This repository adds W_Hotbox to version control.
+For now, it's only available through [nukepedia](http://www.nukepedia.com/python/ui/w_hotbox), I wanted a way to properly track changes between versions.
+I have added a tag per release so tracking can be done easily, either here on GitHub or locally using your method of choice.
+The `main` branch source code will always remain intact from the Nukepedia version.
+But I do plan to make proposals in other branches, and that's the second reason for this repo!
+
+---
+
 # W_hotbox
 A hotbox for Nuke similar to the one found in Autodesk Maya.
 
@@ -28,7 +38,7 @@ The download includes a user guide that features an in-depth description of ever
 
 Make sure to follow the steps in InstallationGuide.txt to install the tool properly. To upgrade from an older version, simply replace the old ‘W_hotbox.py’ and ‘W_hotboxManager.py’ with their updated versions.
 
- 
+
 
 If you decide to install the tool in a studio environment I would love to hear which studio! (Just because I think that's a fun thing to know :) )
 
