@@ -1,8 +1,8 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-# 28 August 2016
-# v1.1
+# 29 August 2016
+# v1.2
 #----------------------------------------------------------------------------------------------------------
 
 import nuke
@@ -16,39 +16,6 @@ import platform
 import colorsys
 
 #----------------------------------------------------------------------------------------------------------
-#
-#         USER SETTINGS TO MAKE THE HOTBOX FUNCTION PROPERLY IN A STUDIO ENVIRONMENT
-#
-#----------------------------------------------------------------------------------------------------------
-'''
-When enabled, users are able to change the location of the Hotbox Manager icons. In a studio environment, 
-this can be unwanted. Change to False to hide the knob.
-'''
-
-enableChangeableIconLocation = True
-
-'''
-For a studio environment it can be useful to be able to setup multiple repositories to load buttons from,
-rather than having only one. Think of a show specific set of buttons, or facility wide, or both.
-Make sure to point the path to the folder containing the 'All','Multiple' and 'Single' folder, and to end the 
-filepath with a '/'. Also, make sure to always use '/' rather than '\\'. All repositories should be named
-uniquely.
-''' 
-
-extraRepositories = []
-#extraRepositories.append(['NAME','/path/to/extra/repository/W_hotbox/'])
-
-'''
-For example, this will add two extra repositories:
-
-extraRepositories.append(['SHOW','server/shows/nuke/repository/W_hotbox/'])
-extraRepositories.append(['FACILITY','server/tools/nuke/repository/W_hotbox/'])
-'''
-
-#----------------------------------------------------------------------------------------------------------
-
-#----------------------------------------------------------------------------------------------------------
-
 
 class hotbox(QtGui.QWidget):
     '''
@@ -236,7 +203,7 @@ class nodeButtons(QtGui.QVBoxLayout):
             if self.path[-1] != '/':
                 self.path = self.path + '/'
 
-            self.allRepositories = list(set([self.path]+[i[1].replace('\\','/') for i in extraRepositories]))
+            self.allRepositories = list(set([self.path]+[i[1] for i in extraRepositories]))
 
             self.rowMaxAmount = int(preferencesNode.knob('hotboxRowAmountAll').value())
 
@@ -714,10 +681,12 @@ def addPreferences():
         except:
             pass
 
-    #hide the iconLocation knob if defined so at the top of the script (line 28)
+    #hide the iconLocation knob if environment varible called 'W_HOTBOX_HIDE_ICON_LOC' is set to 'true' or '1'
     preferencesNode.knob('iconLocation').setVisible(True)
-    if not enableChangeableIconLocation:
-        preferencesNode.knob('iconLocation').setVisible(False)
+    if 'W_HOTBOX_HIDE_ICON_LOC' in os.environ.keys():
+        if os.environ['W_HOTBOX_HIDE_ICON_LOC'].lower() in ['true','1']:
+            preferencesNode.knob('iconLocation').setVisible(False)
+
 #----------------------------------------------------------------------------------------------------------
 #Color
 #----------------------------------------------------------------------------------------------------------
@@ -840,6 +809,33 @@ def getFileBrowser():
 
 #----------------------------------------------------------------------------------------------------------
 
+#check for environment variables to add extra repositories
+'''
+NUKE_HOTBOX_REPO_PATHS=/path1:/path2:/path3
+NUKE_HOTBOX_REPO_NAMES=name1:name2:name3
+'''
+
+extraRepositories = []
+
+if 'W_HOTBOX_REPO_PATHS' in os.environ and 'W_HOTBOX_REPO_NAMES' in os.environ.keys():
+
+    extraRepositoriesPaths = os.environ['W_HOTBOX_REPO_PATHS'].split(os.pathsep)
+    extraRepositoriesNames = os.environ['W_HOTBOX_REPO_NAMES'].split(os.pathsep)
+
+    for index, i in enumerate(range(min(len(extraRepositoriesPaths),len(extraRepositoriesNames)))):
+        path = extraRepositoriesPaths[index].replace('\\','/')
+
+        #make sure last character is a '/'
+        if path[-1] != '/':
+            path += '/'
+
+        name = extraRepositoriesNames[index]
+        if name not in [i[0] for i in extraRepositories] and path not in [i[1] for i in extraRepositories]:
+            extraRepositories.append([name,path])
+
+#----------------------------------------------------------------------------------------------------------
+
+
 preferencesNode = nuke.toNode('preferences')
 addPreferences()
 
@@ -849,6 +845,7 @@ hotboxInstance = None
 lastPosition = ''
 
 #---------------------------------------------------------------------------------------------------------- 
+#add menu items
 
 nuke.menu('Nuke').addCommand('Edit/W_hotbox/Open W_hotbox',showHotbox, shortcut)
 nuke.menu('Nuke').addCommand('Edit/W_hotbox/Open Hotbox Manager', 'W_hotboxManager.showHotboxManager()')

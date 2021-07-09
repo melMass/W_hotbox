@@ -1,8 +1,8 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-version = '1.1'
-releaseDate = '28 August 2016'
+version = '1.2'
+releaseDate = '29 August 2016'
 #----------------------------------------------------------------------------------------------------------
 
 from PySide import QtGui, QtCore
@@ -1244,7 +1244,9 @@ class aboutDialog(QtGui.QWidget):
         self.setFixedWidth(230)
 
         aboutHotbox = QtGui.QLabel()
-        aboutHotbox.setPixmap(QtGui.QPixmap(preferencesNode.knob('iconLocation').value() + '/icon.png'))
+        aboutIcon = preferencesNode.knob('iconLocation').value().replace('\\','/') + '/icon.png'
+        aboutIcon = aboutIcon.replace('//icon.png','/icon.png')
+        aboutHotbox.setPixmap(QtGui.QPixmap(aboutIcon))
 
         aboutVersion = QtGui.QLabel(version)
         aboutDate = QtGui.QLabel(releaseDate)
