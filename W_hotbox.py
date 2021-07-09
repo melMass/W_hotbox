@@ -1,15 +1,15 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-version = '1.8'
-releaseDate = 'April 23 2018'
+version = '1.9'
+releaseDate = 'March 28 2021'
 
 #----------------------------------------------------------------------------------------------------------
 #LICENSE
 #----------------------------------------------------------------------------------------------------------
 
 '''
-Copyright (c) 2016, Wouter Gilsing
+Copyright (c) 2016-2021, Wouter Gilsing
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -139,7 +139,7 @@ class Hotbox(QtWidgets.QWidget):
             lists = [[],[]]
             for index, item in enumerate(allItems[2:]):
 
-                if int((index%4)/2):
+                if int((index%4)//2):
                     lists[index%2].append(item)
                 else:
                     lists[index%2].insert(0,item)
@@ -192,7 +192,7 @@ class Hotbox(QtWidgets.QWidget):
         #position
         self.adjustSize()
 
-        self.spwanPosition = QtGui.QCursor().pos() - QtCore.QPoint((self.width()/2),(self.height()/2))
+        self.spwanPosition = QtGui.QCursor().pos() - QtCore.QPoint((self.width()//2),(self.height()//2))
 
         #set last position if a fresh instance of the hotbox is launched
         if position == '' and not subMenuMode:
@@ -506,11 +506,12 @@ class NodeButtons(QtWidgets.QVBoxLayout):
 
             #run rule
             try:
-                results = {}
-                exec(ruleString, {}, results)
-                  
-                if 'ret' in results.keys():
-                    result = bool(results['ret'])
+                scope = {}
+                exec(ruleString, scope, scope)
+
+                if 'ret' in scope.keys():
+                    result = bool(scope['ret'])
+
             except:
                 error = traceback.format_exc()
 
@@ -584,7 +585,7 @@ class HotboxCenter(QtWidgets.QLabel):
         self.setFixedHeight(height)
 
         #resize font based on length of name
-        fontSize = max(5,(13-(max(0,(len(name) - 11))/2)))
+        fontSize = int(max(5,(13-(max(0,(len(name) - 11))/2))))
         font = QtGui.QFont(preferencesNode.knob('UIFont').value(), fontSize)
         self.setFont(font)
 
@@ -735,7 +736,9 @@ class HotboxButton(QtWidgets.QLabel):
         with nuke.toNode(hotboxInstance.groupRoot):
 
             try:
-                exec self.function
+                scope = globals().copy()
+                exec(self.function, scope, scope)
+
             except:
                 printError(traceback.format_exc(), self.filePath, self.text())
 
@@ -837,7 +840,7 @@ def savePreferencesToFile():
     '''
 
     nukeFolder = os.path.expanduser('~') + '/.nuke/'
-    preferencesFile = nukeFolder + 'preferences%i.%i.nk' %(nuke.NUKE_VERSION_MAJOR,nuke.NUKE_VERSION_MINOR)
+    preferencesFile = nukeFolder + 'preferences{}.{}.nk'.format(nuke.NUKE_VERSION_MAJOR, nuke.NUKE_VERSION_MINOR)
 
     preferencesNode = nuke.toNode('preferences')
 
@@ -1144,7 +1147,7 @@ def updatePreferences():
             #re-add all the knobs
             addPreferences()
 
-            #Restore
+            #restore
             for knob in currentSettings.keys():
                 try:
                     preferencesNode.knob(knob).setValue(currentSettings[knob])
@@ -1153,6 +1156,17 @@ def updatePreferences():
 
             #save to file
             savePreferencesToFile()
+
+    # nuke 12.2v4 and 13 bug. The last tab wont be shown. Workaround is to add an extra tab
+    customTabs = [k.name() for k in preferencesNode.knobs().values() if isinstance(k, nuke.Tab_Knob)]
+    if customTabs and customTabs[-1] == 'hotboxLabel':
+
+        # make new tab and hide it
+        dummyTab = nuke.Tab_Knob('hotboxDummyTab', 'Dummy')
+        dummyTab.setFlag(0x00040000)
+
+        addToPreferences(dummyTab)
+
 
 #----------------------------------------------------------------------------------------------------------
 #Color
@@ -1170,14 +1184,19 @@ def rgb2hex(rgbaValues):
     '''
     Convert a color stored as normalized rgb values to a hex.
     '''
+
+    rgbaValues = [int(i * 255) for i in rgbaValues]
+
     if len(rgbaValues) < 3:
         return
-    return '#%02x%02x%02x' % (rgbaValues[0]*255,rgbaValues[1]*255,rgbaValues[2]*255)
+
+    return '#%02x%02x%02x' % (rgbaValues[0],rgbaValues[1],rgbaValues[2])
 
 def hex2rgb(hexColor):
     '''
     Convert a color stored as hex to rgb values.
     '''
+
     hexColor = hexColor.lstrip('#')
     return tuple(int(hexColor[i:i+2], 16) for i in (0, 2 ,4))
 
@@ -1309,7 +1328,7 @@ def printError(error, path = '', buttonName = '', rule = False):
     hotboxError = '\nW_HOTBOX %sERROR: %s%s:\n%s'%('RULE '*int(bool(rule)), '/'.join(buttonName), lineNumber, errorDescription)
 
     #print error
-    print hotboxError
+    print(hotboxError)
     nuke.tprint(hotboxError)
 
 #----------------------------------------------------------------------------------------------------------
@@ -1360,6 +1379,7 @@ def addMenuItems():
     '''
     Add items to the Nuke menu
     '''
+
     editMenu.addCommand('W_hotbox/Open W_hotbox', showHotbox, shortcut)
     editMenu.addCommand('W_hotbox/-', '', '')
     editMenu.addCommand('W_hotbox/Open Hotbox Manager', 'W_hotboxManager.showHotboxManager()')
@@ -1455,9 +1475,9 @@ if 'W_HOTBOX_REPO_PATHS' in os.environ and 'W_HOTBOX_REPO_NAMES' in os.environ.k
 
 
     if len(extraRepositories) > 0:
-        menubar.addCommand('W_hotbox/-', '', '')
+        editMenu.addCommand('W_hotbox/-', '', '')
         for repo in extraRepositories:
-            menubar.addCommand('W_hotbox/Special/Open Hotbox Manager - %s'%repo[0], 'W_hotboxManager.showHotboxManager(path="%s")'%repo[1])
+            editMenu.addCommand('W_hotbox/Special/Open Hotbox Manager - {}'.format(repo[0]), 'W_hotboxManager.showHotboxManager(path="{}")'.format(repo[1]))
 
 #----------------------------------------------------------------------------------------------------------
 
@@ -1466,4 +1486,4 @@ lastPosition = ''
 
 #----------------------------------------------------------------------------------------------------------
 
-nuke.tprint('W_hotbox v%s, built %s.\nCopyright (c) 2016-%s Wouter Gilsing. All Rights Reserved.'%(version, releaseDate, releaseDate.split()[-1]))
+nuke.tprint('W_hotbox v{}, built {}.\nCopyright (c) 2016-{} Wouter Gilsing. All Rights Reserved.'.format(version, releaseDate, releaseDate.split()[-1]))

@@ -1,15 +1,15 @@
 #----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-version = '1.8'
-releaseDate = 'April 23 2018'
+version = '1.9'
+releaseDate = 'March 28 2021'
 
 #----------------------------------------------------------------------------------------------------------
 #LICENSE
 #----------------------------------------------------------------------------------------------------------
 
 '''
-Copyright (c) 2016, Wouter Gilsing
+Copyright (c) 2016-2021, Wouter Gilsing
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -52,6 +52,9 @@ import shutil
 import re
 import string
 import colorsys
+import tempfile
+import tarfile
+import base64
 
 from datetime import datetime as dt
 from webbrowser import open as openURL
@@ -381,7 +384,7 @@ class HotboxManager(QtWidgets.QWidget):
         self.adjustSize()
 
         screenRes = QtWidgets.QDesktopWidget().screenGeometry()
-        self.move(QtCore.QPoint(screenRes.width()/2,screenRes.height()/2)-QtCore.QPoint((self.width()/2),(self.height()/2)))
+        self.move(QtCore.QPoint(screenRes.width()//2,screenRes.height()//2)-QtCore.QPoint((self.width()//2),(self.height()//2)))
 
         #--------------------------------------------------------------------------------------------------
         #set values
@@ -511,7 +514,7 @@ class HotboxManager(QtWidgets.QWidget):
         if selectItem:
 
             #select based on string
-            if isinstance(selectItem, basestring):
+            if isinstance(selectItem, str):
                 foundItems = self.classesList.findItems(selectItem, QtCore.Qt.MatchExactly)
                 if foundItems:
                     self.classesList.setCurrentItem(foundItems[0])
@@ -896,48 +899,32 @@ class HotboxManager(QtWidgets.QWidget):
             self.scriptEditorTemplateMenu.enableMenuItems()
 
     #--------------------------------------------------------------------------------------------------
-    #import/export functions
+    # import/export functions
     #--------------------------------------------------------------------------------------------------
 
-    #export
+    # export
     def exportHotboxArchive(self):
         '''
-        A method to export a set of buttons to an external current archive.
+        A method to export a set of buttons to an external archive.
         '''
-        
-        #create zip
-        nukeFolder = os.getenv('HOME').replace('\\','/') + '/.nuke/'
-        currentDate = dt.now().strftime('%Y%m%d%H%M')
-        tempFolder = nukeFolder + 'W_hotboxArchiveImportTemp_%s/'%currentDate
-        os.mkdir(tempFolder)
 
-        archiveLocation = tempFolder + 'hotboxArchive_%s.tar.gz'%currentDate
 
-        from tarfile import open as openTarArchive
+        archiveLocation = tempfile.mkstemp()[1]
 
-        with openTarArchive(archiveLocation, "w:gz") as tar:
-            tar.add(self.rootLocation, arcname=os.path.basename(self.rootLocation))
+        # write to zip
+        with tarfile.open(archiveLocation, "w:gz") as tar:
+            tar.add(self.rootLocation, arcname = os.path.basename(self.rootLocation))
 
-        #read from file
-        archive = open(archiveLocation)
-        archiveContent = archive.read()
-        archive.close()
+        #----------------------------------------------------------------------------------------------
+        # file
+        #----------------------------------------------------------------------------------------------
 
-        #if clipboard
-        if self.clipboardArchive.isChecked():
+        if not self.clipboardArchive.isChecked():
 
-            from base64 import b64encode
-
-            encodedArchive = b64encode(archiveContent)
-
-            #save to clipboard
-            QtWidgets.QApplication.clipboard().setText(encodedArchive)
-
-        else:
             #save to file
             exportFileLocation = nuke.getFilename('Export Archive', '*.hotbox')
+
             if exportFileLocation == None:
-                shutil.rmtree(tempFolder)
                 return
 
             if not exportFileLocation.endswith('.hotbox'):
@@ -945,10 +932,39 @@ class HotboxManager(QtWidgets.QWidget):
 
             shutil.copy(archiveLocation, exportFileLocation)
 
-        #delete archive
-        shutil.rmtree(tempFolder)
+            nuke.message('Successfully exported archive to \n{}'.format(exportFileLocation))
+
+        #----------------------------------------------------------------------------------------------
+        # clipboard
+        #----------------------------------------------------------------------------------------------
+
+        else:
+
+            # nuke 13
+            if nuke.NUKE_VERSION_MAJOR > 12:
+
+                # read from file
+                with open(archiveLocation, 'rb') as tar:
+                    archiveContent = tar.read()
+
+                # convert bytes to text
+                encodedArchive = str(base64.b64encode(archiveContent))
+                encodedArchive = encodedArchive[2:-1]
+
+            # nuke 12 and older
+            else:
+                #read from file
+                with open(archiveLocation) as tar:
+                    archiveContent = tar.read()
+
+                encodedArchive = base64.b64encode(archiveContent)
+
+            # save to clipboard
+            QtWidgets.QApplication.clipboard().setText(encodedArchive)
+
 
     def indexArchive(self, location, dict = False):
+
         if dict:
             fileList = {}
         else:
@@ -1004,10 +1020,13 @@ class HotboxManager(QtWidgets.QWidget):
 
         nukeFolder = os.getenv('HOME').replace('\\','/') + '/.nuke/'
         currentDate = dt.now().strftime('%Y%m%d%H%M')
-        tempFolder = nukeFolder + 'W_hotboxArchiveImportTemp_%s/'%currentDate
-        archiveLocation = tempFolder + 'hotboxArchive_%s.tar.gz'%currentDate
 
-        #using a file
+        archiveLocation = tempfile.mkstemp()[1]
+
+        #----------------------------------------------------------------------------------------------
+        # file
+        #----------------------------------------------------------------------------------------------
+
         if not self.clipboardArchive.isChecked():
 
             importFileLocation = nuke.getFilename('select to import', '*.hotbox')
@@ -1016,34 +1035,58 @@ class HotboxManager(QtWidgets.QWidget):
             if not importFileLocation:
                 return
 
-            os.mkdir(tempFolder)
             shutil.copy(importFileLocation, archiveLocation)
 
-        #using clipboard
+        #----------------------------------------------------------------------------------------------
+        # clipboard
+        #----------------------------------------------------------------------------------------------
+
         else:
 
-            os.mkdir(tempFolder)
-
-            from base64 import b64decode
-
             encodedArchive = QtWidgets.QApplication.clipboard().text()
-            decodedArchive = b64decode(encodedArchive)
+            decodedArchive = base64.b64decode(encodedArchive)
 
-            archive = open(archiveLocation,'w')
-            archive.write(decodedArchive)
-            archive.close()
+            with open(archiveLocation,'wb') as archive:
+                archive.write(decodedArchive)
 
-        #extract archive
-        from tarfile import open as openTarArchive
+        #----------------------------------------------------------------------------------------------
+        # extract archive
+        #----------------------------------------------------------------------------------------------
 
-        archive = openTarArchive(archiveLocation)
-        importedArchiveLocation = tempFolder + 'archiveExtracted' + currentDate
-        os.mkdir(importedArchiveLocation)
-        archive.extractall(importedArchiveLocation)
-        archive.close()
+        importedArchiveLocation = tempfile.mkdtemp()
+
+        # nuke 13
+        if nuke.NUKE_VERSION_MAJOR > 12:
+            # nuke 13 crashes when extracting a tar file...
+            # therefore we need to run it through a subprocess
+
+            command = []
+            command.append('import tarfile')
+
+            command.append('with tarfile.open("{}") as archive:'.format(archiveLocation))
+            command.append('    archive.extractall("{}")'.format(importedArchiveLocation))
+
+            command = '\n'.join(command)
+
+            # write to temp file
+            module = tempfile.mkstemp()[1]
+            with open(module, 'w') as moduleFile:
+                moduleFile.write(command)
+
+            # execute temp file
+            import subprocess
+            process = subprocess.Popen('python {}'.format(module), shell = True)
+            process.wait()
+
+        # nuke 12 and odler
+        else:
+
+            with tarfile.open(archiveLocation) as archive:
+                archive.extractall(importedArchiveLocation)
+
+        #----------------------------------------------------------------------------------------------
 
         importedArchiveLocation += '/'
-
         importedArchiveLocation = importedArchiveLocation.replace('\\','/')
 
         #Make sure the current archive is healthy
@@ -1051,7 +1094,6 @@ class HotboxManager(QtWidgets.QWidget):
             RepairHotbox(self.rootLocation + i, message = False)
 
         #Copy stuff from extracted archive to current hotbox location
-
         importedArchive = self.indexArchive(importedArchiveLocation)
         currentArchive = self.indexArchive(self.rootLocation, dict = True)
 
@@ -1106,6 +1148,10 @@ class HotboxManager(QtWidgets.QWidget):
                 #check folders inside existing folder
                 for folder in [dir for dir in os.listdir(baseFolder) if len(dir) == 3 and dir[0] not in ['.','_']]:
                     nameFile = baseFolder + '/' + folder + '/_name.json'
+
+                    if not os.path.exists(nameFile):
+                        continue
+
                     if open(nameFile).read() == folderName:
 
                         baseFolder = baseFolder +'/' + folder
@@ -1127,9 +1173,6 @@ class HotboxManager(QtWidgets.QWidget):
             fileName =  str((len(currentFiles) + 1)).zfill(3)+ '.py'
             shutil.copy(importedArchiveLocation + '/' + i[0], baseFolder + '/' + fileName)
 
-        #delete archive
-        shutil.rmtree(tempFolder)
-
         #reinitiate
         self.buildClassesList()
 
@@ -1145,6 +1188,7 @@ class HotboxManager(QtWidgets.QWidget):
     #--------------------------------------------------------------------------------------------------
     #open about widget
     #--------------------------------------------------------------------------------------------------
+
     def openAboutDialog(self):
         global aboutDialogInstance
         if aboutDialogInstance != None:
@@ -1383,13 +1427,16 @@ class ColorSwatch(QtWidgets.QLabel):
         else:
             e.ignore()
 
-
     def dropEvent(self, e):
-
-        print e.mimeData().colorData().rgb()
 
         #find color
         node = nuke.toNode(nuke.tcl('stack 0'))
+
+        if not node:
+            node = nuke.selectedNode()
+
+        if not node:
+            return
 
         interfaceColor = node.knob('tile_color').value()
 
@@ -1400,7 +1447,6 @@ class ColorSwatch(QtWidgets.QLabel):
         color = W_hotbox.rgb2hex(rgbColor)
 
         self.setColor(color)
-
 
     #--------------------------------------------------------------------------------------------------
     #Color
@@ -1797,7 +1843,7 @@ class ScriptEditorWidget(QtWidgets.QPlainTextEdit):
         digits = 1
         maxNum = max(1, self.blockCount())
         while (maxNum >= 10):
-            maxNum /= 10
+            maxNum //= 10
             digits += 1
 
         space = 7 + self.fontMetrics().width('9') * digits
@@ -1895,7 +1941,7 @@ class ScriptEditorWidget(QtWidgets.QPlainTextEdit):
 
         #snap to previous indent level
         spaces = len(textInFront)
-        for space in range(spaces - ((spaces -1) /4) * 4 -1):
+        for space in range(spaces - ((spaces -1) // 4) * 4 -1):
             self.cursor.deletePreviousChar()
 
     def indentNewLine(self):
@@ -1924,7 +1970,7 @@ class ScriptEditorWidget(QtWidgets.QPlainTextEdit):
             else:
                 break
 
-        indentLevel /= 4
+        indentLevel //= 4
 
         #find out whether textInFront's last character was a ':'
         #if that's the case add another indent.
@@ -1940,7 +1986,7 @@ class ScriptEditorWidget(QtWidgets.QPlainTextEdit):
         #new line
         self.insertPlainText('\n')
         #match indent
-        self.insertPlainText(' '*(4*indentLevel))
+        self.insertPlainText(' '*(4*int(indentLevel)))
 
     def indentation(self, mode):
         '''
@@ -2168,7 +2214,7 @@ class ScriptEditorHighlighter(QtGui.QSyntaxHighlighter):
             'del', 'elif', 'else', 'except', 'exec', 'finally',
             'for', 'from', 'global', 'if', 'import', 'in',
             'is', 'lambda', 'not', 'or', 'pass', 'print',
-            'raise', 'return', 'try', 'while', 'yield'
+            'raise', 'return', 'try', 'while', 'with', 'yield'
             ]
 
         self.operatorKeywords = [
@@ -2419,7 +2465,7 @@ class ScriptEditorTemplateMenu(QtWidgets.QMenu):
             return script
 
         #find current indentation, rounded by 4
-        indentLevel = ' '*(4*((len(textBeforeCursor) - len(textBeforeCursorNoIndent))/4))
+        indentLevel = ' '* (4*((len(textBeforeCursor) - len(textBeforeCursorNoIndent))//4))
 
         if textBeforeCursorNoIndent != '':
             script = '\n' + script
@@ -3193,7 +3239,7 @@ class RenameDialog(QtWidgets.QDialog):
         #move to screen center
         self.adjustSize()
         screenRes = QtWidgets.QDesktopWidget().screenGeometry()
-        self.move(QtCore.QPoint(screenRes.width()/2,screenRes.height()/2)-QtCore.QPoint((self.width()/2),(self.height()/2)))
+        self.move(QtCore.QPoint(screenRes.width() // 2, screenRes.height() // 2) - QtCore.QPoint((self.width() // 2), (self.height() // 2)))
 
     def validateName(self):
         '''
@@ -3317,7 +3363,7 @@ class AboutDialog(QtWidgets.QFrame):
         #move to screen center
         self.adjustSize()
         screenRes = QtWidgets.QDesktopWidget().screenGeometry()
-        self.move(QtCore.QPoint(screenRes.width()/2,screenRes.height()/2)-QtCore.QPoint((self.width()/2),(self.height()/2)))
+        self.move(QtCore.QPoint(screenRes.width() // 2,screenRes.height() // 2)-QtCore.QPoint((self.width() // 2),(self.height() // 2)))
 
     def mouseReleaseEvent(self,event):
         '''
@@ -3552,7 +3598,7 @@ def clearHotboxManager(sections = ['Single','Multiple','All','Rules']):
 
     clearProgressBar = nuke.ProgressTask('Clearing W_hotbox...')
 
-    clearProgressIncrement = 100/(len(sections)*2)
+    clearProgressIncrement = 100 / (len(sections)*2)
     clearProgress = 0.0
     clearProgressBar.setProgress(int(clearProgress))
 

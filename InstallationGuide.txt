@@ -4,7 +4,7 @@ W_HOTBOX INSTALLATION GUIDE
 FRESH INSTALLATION
 --------------------------------------------------------------------------------------------
 
-1 Copy 'W_hotbox.py' and 'W_hotboxManager.py' to a folder that's part of the nuke plugin path.
+1 Copy 'W_hotbox.py' and 'W_hotboxManager.py' to a folder that's part of the nuke plugin path. (Usually inside ~/user/.nuke)
   
 2 Append menu.py with the following code:
 
