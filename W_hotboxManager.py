@@ -99,9 +99,7 @@ class HotboxManager(QtWidgets.QWidget):
 
         #If the manager is launched for the default repository, make sure the current archive exists.
 
-        preferencesLocation = preferencesNode.knob('hotboxLocation').value()
-        if preferencesLocation[-1] != '/':
-            preferencesLocation += '/'
+        preferencesLocation = getHotBoxLocation()
 
         if self.rootLocation == preferencesLocation:
             for subFolder in ['','Single', 'Multiple', 'All', 'Single/No Selection', 'Rules', 'Templates']:
@@ -157,14 +155,14 @@ class HotboxManager(QtWidgets.QWidget):
         #--------------------------------------------------------------------------------------------------
         #right column - hotbox items tree
         #--------------------------------------------------------------------------------------------------
-        
+
         self.hotboxItemsTree = QTreeViewCustom(self)
         self.hotboxItemsTree.setFixedWidth(150)
-        self.rootPath = nuke.toNode('preferences').knob('hotboxLocation').value()
+        self.rootPath = getHotBoxLocation()
 
         self.classesList.itemSelectionChanged.connect(self.hotboxItemsTree.populateTree)
-        
-        #actions 
+
+        #actions
         self.hotboxItemsTreeButtonsLayout = QtWidgets.QVBoxLayout()
 
         self.hotboxItemsTreeAddButton = QLabelButton('add',self.hotboxItemsTree)
@@ -227,7 +225,7 @@ class HotboxManager(QtWidgets.QWidget):
         self.clipboardArchive.setToolTip(tooltip)
         tooltip = 'Import a button archive. This will append the current set of buttons and overwrite any buttons with the same name.'
         self.importArchiveButton.setToolTip(tooltip)
-        tooltip = 'Export the current set of buttons as an archive.'    
+        tooltip = 'Export the current set of buttons as an archive.'
         self.exportArchiveButton.setToolTip(tooltip)
 
         #wire up
@@ -244,10 +242,10 @@ class HotboxManager(QtWidgets.QWidget):
         #--------------------------------------------------------------------------------------------------
         #scriptEditor
         #--------------------------------------------------------------------------------------------------
-        
+
         self.ignoreSave = False
         self.loadedScript = None
-        self.scriptEditorLayout = QtWidgets.QVBoxLayout()       
+        self.scriptEditorLayout = QtWidgets.QVBoxLayout()
 
         #buttons
         self.scriptEditorButtonsLayout = QtWidgets.QHBoxLayout()
@@ -300,7 +298,7 @@ class HotboxManager(QtWidgets.QWidget):
 
         #rules
         self.rulesFlagCheckbox = QtWidgets.QCheckBox('Ignore classes')
-        self.rulesFlagCheckbox.setLayoutDirection(QtCore.Qt.RightToLeft) 
+        self.rulesFlagCheckbox.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.rulesFlagCheckbox.stateChanged.connect(lambda: self.saveScriptEditor())
 
         #label to make sure the checkbox is aligned to the right
@@ -358,7 +356,7 @@ class HotboxManager(QtWidgets.QWidget):
         #--------------------------------------------------------------------------------------------------
         #main layout
         #--------------------------------------------------------------------------------------------------
-        
+
         self.mainLayout = QtWidgets.QHBoxLayout()
         self.mainLayout.addLayout(self.classesListButtonsLayout)
         self.mainLayout.addLayout(self.classesListLayout)
@@ -369,7 +367,7 @@ class HotboxManager(QtWidgets.QWidget):
         #--------------------------------------------------------------------------------------------------
         #layouts
         #--------------------------------------------------------------------------------------------------
-        
+
         self.masterLayout = QtWidgets.QVBoxLayout()
 
         self.masterLayout.addLayout(self.mainLayout)
@@ -380,7 +378,7 @@ class HotboxManager(QtWidgets.QWidget):
         #--------------------------------------------------------------------------------------------------
         #move to center of the screen
         #--------------------------------------------------------------------------------------------------
-        
+
         self.adjustSize()
 
         screenRes = QtWidgets.QDesktopWidget().screenGeometry()
@@ -571,7 +569,7 @@ class HotboxManager(QtWidgets.QWidget):
         else:
             selectedClass = self.getSelectedClass()
             if not selectedClass:
-                return 
+                return
 
 
         #move to old folder
@@ -590,7 +588,7 @@ class HotboxManager(QtWidgets.QWidget):
 
         selectedClass = self.getSelectedClass()
         if not selectedClass:
-            return 
+            return
 
         #kill any existing instances
         global renameDialogInstance
@@ -647,7 +645,7 @@ class HotboxManager(QtWidgets.QWidget):
                 item = self.classesList.currentItem()
                 itemState = 1 - bool(item.checkState())
                 self.loadedScript = '/'.join([self.path, item.text() + '_' * itemState, '_rule.py'])
-                
+
 
             #if item (not submenu)
             if self.loadedScript.endswith('.py'):
@@ -655,7 +653,7 @@ class HotboxManager(QtWidgets.QWidget):
                 self.enableScriptEditor()
 
                 if not rule:
-                    
+
 
                     #set attributes
                     name = getAttributeFromFile(self.loadedScript)
@@ -730,7 +728,7 @@ class HotboxManager(QtWidgets.QWidget):
 
     def importScriptEditor(self):
         '''
-        Set the current content of the script editor by importing an existing file. 
+        Set the current content of the script editor by importing an existing file.
         '''
 
         if self.scriptEditorImportButton.isEnabled():
@@ -743,14 +741,14 @@ class HotboxManager(QtWidgets.QWidget):
 
     def saveScriptEditor(self, template = False):
         '''
-        Save the current content of the script editor 
+        Save the current content of the script editor
         '''
 
         #dont save whenever this function is triggered while ignoreSave is on.
         if self.ignoreSave:
             return
 
-        rule = self.rulesFlagCheckbox.isVisible() 
+        rule = self.rulesFlagCheckbox.isVisible()
 
         if not self.scriptEditorName.isReadOnly():
 
@@ -805,7 +803,7 @@ class HotboxManager(QtWidgets.QWidget):
     #--------------------------------------------------------------------------------------------------
     #Rules mode
     #--------------------------------------------------------------------------------------------------
-    
+
     def toggleRulesMode(self, mode = True):
         '''
         Toggle rule mode on and off.
@@ -1244,7 +1242,7 @@ class QListWidgetCustom(QtWidgets.QListWidget):
 
         for index in range(self.count()):
 
-            item = self.item(index) 
+            item = self.item(index)
             fileName = item.text()
 
             checkState = int(item.checkState())
@@ -2075,7 +2073,7 @@ class ScriptEditorWidget(QtWidgets.QPlainTextEdit):
             self.cursor.setPosition(last, QtGui.QTextCursor.KeepAnchor)
             self.cursor.movePosition(lastBlockSnap, QtGui.QTextCursor.KeepAnchor)
 
-        self.setTextCursor(self.cursor)               
+        self.setTextCursor(self.cursor)
     #--------------------------------------------------------------------------------------------------
 
     def findBlocks(self, first = 0, last = None, exclude = []):
@@ -2331,6 +2329,21 @@ class ScriptEditorHighlighter(QtGui.QSyntaxHighlighter):
         else:
             return False
 
+def getHotBoxLocation(path=None):
+    '''
+    Returns the location of the hotbox.
+    '''
+    folder = ""
+    if (path):
+        folder = path
+    else:
+        folder = preferencesNode.knob('hotboxLocation').value()
+
+    if folder[-1] != '/':
+        folder += '/'
+
+    return os.path.expandvars(folder.replace('\\','/'))
+
 #------------------------------------------------------------------------------------------------------
 #Template Button
 #------------------------------------------------------------------------------------------------------
@@ -2344,9 +2357,8 @@ class ScriptEditorTemplateMenu(QtWidgets.QMenu):
         self.hotbox = parentObject
 
         #set default template folder
-        folder = preferencesNode.knob('hotboxLocation').value()
-        if folder[-1] != '/':
-            folder += '/'
+        folder = getHotBoxLocation()
+
         self.templateFolder = folder + 'Templates'
 
         self.initMenu()
@@ -3104,6 +3116,8 @@ class QLabelButton(QtWidgets.QLabel):
         while iconFolder[-1] == '/':
             iconFolder = iconFolder[:-1]
 
+        iconFolder = os.path.expandvars(iconFolder)
+
         self.imageFile = '%s/hotbox_%s'%(iconFolder,name)
 
         #check if icon is present. If not, display '?'
@@ -3405,7 +3419,7 @@ class QWebLink(QtWidgets.QLabel):
 
         import platform
         operatingSystem = platform.system()
-        
+
         hotboxVersion = 'W_hotbox v%s (%s)'%(version, releaseDate)
         nukeVersion = 'Nuke ' + nuke.NUKE_VERSION_STRING
 
@@ -3485,7 +3499,7 @@ class RepairHotbox():
 
         #set root folder
         if folder == None:
-            self.root = preferencesNode.knob('hotboxLocation').value()
+            self.root = getHotBoxLocation()
         else:
             self.root = folder
 
@@ -3592,9 +3606,7 @@ def clearHotboxManager(sections = ['Single','Multiple','All','Rules']):
     if not nuke.ask(message):
         return
 
-    hotboxLocation = preferencesNode.knob('hotboxLocation').value()
-    if hotboxLocation[-1] != '/':
-        hotboxLocation += '/'
+    hotboxLocation = getHotBoxLocation()
 
     clearProgressBar = nuke.ProgressTask('Clearing W_hotbox...')
 
@@ -3702,11 +3714,7 @@ def showHotboxManager(path = ''):
     if hotboxManagerInstance != None:
         hotboxManagerInstance.close()
 
-    if path == '':
-        path = preferencesNode.knob('hotboxLocation').value()
-        
-    if path[-1] != '/':
-        path += '/' 
+    path = getHotBoxLocation(path)
 
     hotboxManagerInstance = HotboxManager(path)
     hotboxManagerInstance.show()

@@ -40,6 +40,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import nuke
 
+from W_hotboxManager import getHotBoxLocation
 #Choose between PySide and PySide2 based on Nuke version
 if nuke.NUKE_VERSION_MAJOR < 11:
     from PySide import QtCore, QtGui, QtGui as QtWidgets
@@ -88,8 +89,8 @@ class Hotbox(QtWidgets.QWidget):
         #--------------------------------------------------------------------------------------------------
         #context
         #--------------------------------------------------------------------------------------------------
-   
-        self.selection = nuke.selectedNodes()   
+
+        self.selection = nuke.selectedNodes()
 
         #check whether selection in group
         self.groupRoot = 'root'
@@ -212,8 +213,8 @@ class Hotbox(QtWidgets.QWidget):
 
         #if the execute on close function is turned on, the hotbox will execute the selected button upon close
 
-        
-        
+
+
         if hotkey:
             if preferencesNode.knob('hotboxExecuteOnClose').value():
                 if self.activeButton != None:
@@ -290,16 +291,14 @@ class NodeButtons(QtWidgets.QVBoxLayout):
                 mode = 1 - mode
                 mirrored = 1 - mirrored
 
-            self.path = preferencesNode.knob('hotboxLocation').value().replace('\\','/')
-            if self.path[-1] != '/':
-                self.path = self.path + '/'
+            self.path = getHotBoxLocation()
 
             self.allRepositories = list(set([self.path]+[i[1] for i in extraRepositories]))
 
             self.rowMaxAmount = int(preferencesNode.knob('hotboxRowAmountAll').value())
 
             self.folderList = []
-            
+
             #----------------------------------------------------------------------------------------------
             #noncontextual
             #----------------------------------------------------------------------------------------------
@@ -311,7 +310,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
             #----------------------------------------------------------------------------------------------
             #contextual
             #----------------------------------------------------------------------------------------------
-            
+
             else:
 
                 mirrored = 1 - mirrored
@@ -330,7 +329,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
                 allRulePaths = []
 
                 for repository in self.allRepositories:
-                    
+
                     rulesFolder = repository + 'Rules'
                     if not os.path.exists(rulesFolder):
                         continue
@@ -349,7 +348,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
 
                                 #read ruleFile to check if ignoreClasses was enabled.
                                 if not ignoreClasses:
-                            
+
                                     for line in open(ruleFile).readlines():
                                         #no point in checking boyond the header
                                         if not line.startswith('#'):
@@ -364,7 +363,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
                 #------------------------------------------------------------------------------------------
 
                 #collect all folders storing buttons for applicable classes
-                
+
                 if not ignoreClasses:
 
                     allClassPaths = []
@@ -418,7 +417,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
                 #------------------------------------------------------------------------------------------
                 #combine classes and rules
                 #------------------------------------------------------------------------------------------
-                
+
                 if ignoreClasses:
                     self.folderList = allRulePaths
 
@@ -442,7 +441,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
         #--------------------------------------------------------------------------------------------------
         #devide in rows based on the row maximum
         #--------------------------------------------------------------------------------------------------
-        
+
         allRows = []
         row = []
 
@@ -809,7 +808,7 @@ class HotboxButton(QtWidgets.QLabel):
             nuke.Undo().begin()
 
             self.invokeButton()
-            
+
             nuke.Undo().end()
 
         return True
@@ -848,11 +847,10 @@ def savePreferencesToFile():
     customPrefences = customPrefences.replace('\n','\n  ')
 
     preferencesCode = 'Preferences {\n inputs 0\n name Preferences%s\n}' %customPrefences
-
     # write to file
-    openPreferencesFile = open( preferencesFile , 'w' )
-    openPreferencesFile.write( preferencesCode )
-    openPreferencesFile.close()
+    with open(preferencesFile, 'wb') as f:
+        f.write( preferencesCode.encode('utf-8') )
+
 
 def deletePreferences():
     '''
@@ -878,7 +876,7 @@ def addPreferences():
     '''
     Add knobs to the preferences needed for this module to work properly.
     '''
-    
+
     addToPreferences(nuke.Tab_Knob('hotboxLabel','W_hotbox'))
     addToPreferences(nuke.Text_Knob('hotboxGeneralLabel','<b>General</b>'))
 
@@ -1232,7 +1230,7 @@ def getSelectionColor():
 
     customColor = rgb2hex(interface2rgb(preferencesNode.knob('hotboxColorCustom').value()))
     colorMode = int(preferencesNode.knob('hotboxColorDropdown').getValue())
-    
+
     return['#5285a6','#f7931e',customColor][colorMode]
 
 #----------------------------------------------------------------------------------------------------------
@@ -1242,7 +1240,7 @@ def revealInBrowser(startFolder = False):
     Reveal the hotbox folder in a filebrowser
     '''
     if startFolder:
-        path = preferencesNode.knob('hotboxLocation').value()
+        path = getHotBoxLocation()
 
     else:
         try:
@@ -1398,7 +1396,7 @@ def resetMenuItems():
     Remove and readd all items to the Nuke menu. Used to change the shotcut
     '''
 
-    global shortcut 
+    global shortcut
     shortcut = preferencesNode.knob('hotboxShortcut').value()
 
     if editMenu.findItem('W_hotbox'):
@@ -1419,7 +1417,7 @@ addPreferences()
 
 #make sure the archive folders are present, if not, create them
 hotboxLocationPathKnob = preferencesNode.knob('hotboxLocation')
-hotboxLocationPath = hotboxLocationPathKnob.value().replace('\\','/')
+hotboxLocationPath = getHotBoxLocation()
 
 if not hotboxLocationPath:
     hotboxLocationPath = homeFolder + '/W_hotbox'
