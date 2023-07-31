@@ -1,32 +1,40 @@
 # ----------------------------------------------------------------------------------------------------------
 # Wouter Gilsing
 # woutergilsing@hotmail.com
-version = "1.9"
-releaseDate = "March 28 2021"
 
 
 # - modules
 import nuke
 
-from W_hotboxManager import getHotBoxLocation
+from W_hotbox_utils import (
+    getHotBoxLocation,
+    operatingSystem,
+    preferencesNode,
+    version,
+    releaseDate,
+    getFileBrowser,
+    interface2rgb,
+    getTileColor,
+    rgb2hex,
+    getSelectionColor,
+    revealInBrowser,
+    updatePreferences,
+    homeFolder,
+    Constants,
+)
+from M_Log import mklog
 
-# Choose between PySide and PySide2 based on Nuke version
-if nuke.NUKE_VERSION_MAJOR < 11:
-    from PySide import QtCore, QtGui, QtGui as QtWidgets
-else:
-    from PySide2 import QtGui, QtCore, QtWidgets
+log = mklog("W_hotbox")
+
+from PySide2 import QtGui, QtCore, QtWidgets
 
 import os
-import subprocess
-import platform
-
 import traceback
 import colorsys
+import contextlib
 
 import W_hotboxManager
-
-preferencesNode = nuke.toNode("preferences")
-operatingSystem = platform.system()
+from W_hotbox_utils import addPreferences
 
 
 class Hotbox(QtWidgets.QWidget):
@@ -36,6 +44,7 @@ class Hotbox(QtWidgets.QWidget):
 
     def __init__(self, subMenuMode=False, path="", name="", position=""):
         super(Hotbox, self).__init__()
+        log.debug("Initializing Hotbox class")
 
         self.active = True
         self.activeButton = None
@@ -74,15 +83,17 @@ class Hotbox(QtWidgets.QWidget):
         if not subMenuMode:
             self.mode = "Single"
 
-            if len(self.selection) > 1:
-                if len(list(set([node.Class() for node in nuke.selectedNodes()]))) > 1:
-                    self.mode = "Multiple"
+            if (
+                len(self.selection) > 1
+                and len(list({node.Class() for node in nuke.selectedNodes()})) > 1
+            ):
+                self.mode = "Multiple"
 
             # Layouts
             centerLayout = QtWidgets.QHBoxLayout()
             centerLayout.addStretch()
             centerLayout.addWidget(
-                HotboxButton("Reveal in %s" % getFileBrowser(), "revealInBrowser()")
+                HotboxButton(f"Reveal in {getFileBrowser()}", "revealInBrowser()")
             )
             centerLayout.addSpacing(25)
             centerLayout.addWidget(HotboxCenter())
@@ -97,10 +108,9 @@ class Hotbox(QtWidgets.QWidget):
 
             spacing = 12
 
-        # - submenu mode
         else:
             allItems = [
-                path + "/" + i
+                f"{path}/{i}"
                 for i in sorted(os.listdir(path))
                 if i[0] not in [".", "_"]
             ]
@@ -139,7 +149,7 @@ class Hotbox(QtWidgets.QWidget):
         if difference != 0:
             extraLayout = QtWidgets.QVBoxLayout()
 
-            for i in range(abs(difference)):
+            for _ in range(abs(difference)):
                 extraLayout.addSpacing(35)
 
             if difference > 0:
@@ -161,15 +171,15 @@ class Hotbox(QtWidgets.QWidget):
         )
 
         # set last position if a fresh instance of the hotbox is launched
+        constants = Constants()
         if position == "" and not subMenuMode:
-            global lastPosition
-            lastPosition = self.spwanPosition
+            constants.lastPosition = self.spwanPosition
 
         if subMenuMode:
             self.move(self.spwanPosition)
 
         else:
-            self.move(lastPosition)
+            self.move(constants.lastPosition)
 
         # make sure the widgets closes when it loses focus
         self.installEventFilter(self)
@@ -177,21 +187,22 @@ class Hotbox(QtWidgets.QWidget):
     def closeHotbox(self, hotkey=False):
         # if the execute on close function is turned on, the hotbox will execute the selected button upon close
 
-        if hotkey:
-            if preferencesNode.knob("hotboxExecuteOnClose").value():
-                if self.activeButton != None:
-                    self.activeButton.invokeButton()
-                    self.activeButton = None
+        if hotkey and (
+            preferencesNode.knob("hotboxExecuteOnClose").value()
+            and self.activeButton != None
+        ):
+            self.activeButton.invokeButton()
+            self.activeButton = None
 
         self.active = False
         self.close()
 
     def keyReleaseEvent(self, event):
+        constants = Constants()
         if event.isAutoRepeat():
             return False
-        if event.text() == shortcut:
-            global lastPosition
-            lastPosition = ""
+        if event.text() == constants.shortcut:
+            constants.lastPosition = ""
 
             # if set to single tap, leave the hotbox open after launching, else close it.
             if not self.triggerMode:
@@ -200,15 +211,16 @@ class Hotbox(QtWidgets.QWidget):
             return True
 
     def keyPressEvent(self, event):
-        if event.text() == shortcut:
-            if event.isAutoRepeat():
-                return False
+        constants = Constants()
 
-            # if launch mode is set to 'Single Tap' close the hotbox.
-            if self.triggerMode:
-                self.closeHotbox(hotkey=True)
-        else:
+        if event.text() != constants.shortcut:
             return False
+        if event.isAutoRepeat():
+            return False
+
+        # if launch mode is set to 'Single Tap' close the hotbox.
+        if self.triggerMode:
+            self.closeHotbox(hotkey=True)
 
     def eventFilter(self, object, event):
         if event.type() in [QtCore.QEvent.WindowDeactivate, QtCore.QEvent.FocusOut]:
@@ -235,10 +247,8 @@ class NodeButtons(QtWidgets.QVBoxLayout):
             self.rowMaxAmount = 3
             mirrored = "top" not in mode.lower()
 
-        # - main hotbox
         else:
             mirrored = True
-
             mode = mode == "bottom"
 
             if preferencesNode.knob("hotboxMirroredLayout").value():
@@ -259,10 +269,8 @@ class NodeButtons(QtWidgets.QVBoxLayout):
 
             if mode:
                 self.folderList += [
-                    repository + "All" for repository in self.allRepositories
+                    f"{repository}All" for repository in self.allRepositories
                 ]
-
-            # - contextual
 
             else:
                 mirrored = 1 - mirrored
@@ -280,7 +288,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
                 allRulePaths = []
 
                 for repository in self.allRepositories:
-                    rulesFolder = repository + "Rules"
+                    rulesFolder = f"{repository}Rules"
                     if not os.path.exists(rulesFolder):
                         continue
 
@@ -292,15 +300,17 @@ class NodeButtons(QtWidgets.QVBoxLayout):
 
                     # validate rules
                     for rule in rules:
-                        ruleFile = rule + "/_rule.py"
+                        log.debug(f"Validating rules: {rule}")
 
-                        if os.path.exists(ruleFile):
-                            if self.validateRule(ruleFile):
-                                allRulePaths.append(rule)
+                        ruleFile = f"{rule}/_rule.py"
 
-                                # read ruleFile to check if ignoreClasses was enabled.
-                                if not ignoreClasses:
-                                    for line in open(ruleFile).readlines():
+                        if os.path.exists(ruleFile) and self.validateRule(ruleFile):
+                            allRulePaths.append(rule)
+
+                            # read ruleFile to check if ignoreClasses was enabled.
+                            if not ignoreClasses:
+                                with open(ruleFile, encoding="utf-8") as f:
+                                    for line in f:
                                         # no point in checking boyond the header
                                         if not line.startswith("#"):
                                             break
@@ -321,13 +331,12 @@ class NodeButtons(QtWidgets.QVBoxLayout):
                 if not ignoreClasses:
                     allClassPaths = []
 
-                    nodeClasses = list(set([node.Class() for node in selectedNodes]))
+                    nodeClasses = list({node.Class() for node in selectedNodes})
 
                     # if nothing selected
-                    if len(nodeClasses) == 0:
+                    if not nodeClasses:
                         nodeClasses = ["No Selection"]
 
-                    # if selection
                     else:
                         # check if group, if so take the name of the group, as well as the class
                         groupNodes = []
@@ -343,7 +352,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
                                     ):
                                         groupNodes.append(groupName)
 
-                        if len(groupNodes) > 0:
+                        if groupNodes:
                             groupNodes = [
                                 nodeClass
                                 for nodeClass in nodeClasses
@@ -355,7 +364,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
                         if len(groupNodes) > 1:
                             groupNodes = [groupNodes]
 
-                        nodeClasses = nodeClasses + groupNodes
+                        nodeClasses += groupNodes
 
                     # Check which defined class combinations on disk are applicable to the current selection.
                     for repository in self.allRepositories:
@@ -363,7 +372,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
                             if isinstance(nodeClass, list):
                                 for managerNodeClasses in [
                                     i
-                                    for i in os.listdir(repository + "Multiple")
+                                    for i in os.listdir(f"{repository}Multiple")
                                     if i[0] not in ["_", "."]
                                 ]:
                                     managerNodeClassesList = managerNodeClasses.split(
@@ -377,12 +386,10 @@ class NodeButtons(QtWidgets.QVBoxLayout):
 
                                     if len(match) >= len(nodeClass):
                                         allClassPaths.append(
-                                            repository
-                                            + "Multiple/"
-                                            + managerNodeClasses
+                                            f"{repository}Multiple/{managerNodeClasses}"
                                         )
                             else:
-                                allClassPaths.append(repository + "Single/" + nodeClass)
+                                allClassPaths.append(f"{repository}Single/{nodeClass}")
 
                     allClassPaths = list(set(allClassPaths))
                     allClassPaths = [
@@ -403,14 +410,14 @@ class NodeButtons(QtWidgets.QVBoxLayout):
             allItems = []
 
             for folder in self.folderList:
-                for file in sorted(os.listdir(folder)):
-                    if file[0] not in [".", "_"] and len(file) in [3, 6]:
-                        allItems.append("/".join([folder, file]))
-
-        # - devide in rows based on the row maximum
-        allRows = []
+                allItems.extend(
+                    "/".join([folder, file])
+                    for file in sorted(os.listdir(folder))
+                    if file[0] not in [".", "_"] and len(file) in {3, 6}
+                )
         row = []
 
+        allRows = []
         for item in allItems:
             if preferencesNode.knob("hotboxButtonSpawnMode").value():
                 if len(row) % 2:
@@ -454,13 +461,16 @@ class NodeButtons(QtWidgets.QVBoxLayout):
         Run the rule, return True or False.
         """
 
+        log.debug(f"Validation the rule from {ruleFile}")
+
         error = False
 
         # read from file
-        ruleString = open(ruleFile).read()
+        with open(ruleFile, encoding="utf-8") as rule:
+            ruleString = rule.read()
 
         # quick sanity check
-        if not "ret=" in ruleString.replace(" ", ""):
+        if "ret=" not in ruleString.replace(" ", ""):
             error = "RuleError: rule must contain variable named 'ret'"
 
         else:
@@ -471,13 +481,16 @@ class NodeButtons(QtWidgets.QVBoxLayout):
             # run rule
             try:
                 scope = {}
+                log.debug(ruleString)
                 exec(ruleString, scope, scope)
 
-                if "ret" in scope.keys():
+                if "ret" in scope:
                     result = bool(scope["ret"])
 
-            except:
+            except Exception as e:
                 error = traceback.format_exc()
+                log.error(error)
+                log.error(e)
 
         # run error
         if error:
@@ -532,11 +545,13 @@ class HotboxCenter(QtWidgets.QLabel):
             width = 115
             height = 60
 
-            if (len(set([i.Class() for i in selectedNodes]))) > 1:
+            if len({i.Class() for i in selectedNodes}) > 1:
                 name = "Selection"
 
         else:
-            name = open(name + "/_name.json").read()
+            with open(f"{name}/_name.json", encoding="utf-8") as nameFile:
+                name = nameFile.read()
+
             nodeColor = getSelectionColor()
 
             width = 105
@@ -610,7 +625,7 @@ class HotboxButton(QtWidgets.QLabel):
         self.borderColor = "#000000"
 
         # set the border color to grey for buttons from an additional repository
-        for index, i in enumerate(extraRepositories):
+        for i in extraRepositories:
             if name.startswith(i[1]):
                 self.borderColor = "#959595"
                 break
@@ -618,47 +633,47 @@ class HotboxButton(QtWidgets.QLabel):
         if function != None:
             self.function = function
 
+        elif os.path.isdir(self.filePath):
+            self.menuButton = True
+            with open(f"{self.filePath}/_name.json", encoding="utf-8") as f:
+                name = f.read()
+            self.function = f'showHotboxSubMenu(r"{self.filePath}","{name}")'
+            self.bgColor = "#333333"
+
         else:
-            # - Button linked to folder
+            with open(name, encoding="utf-8") as f:
+                self.openFile = f.readlines()
 
-            if os.path.isdir(self.filePath):
-                self.menuButton = True
-                name = open(self.filePath + "/_name.json").read()
-                self.function = 'showHotboxSubMenu(r"%s","%s")' % (self.filePath, name)
-                self.bgColor = "#333333"
+            header = []
+            for index, line in enumerate(self.openFile):
+                if not line.startswith("#"):
+                    self.function = "".join(self.openFile[index:])
+                    break
 
-            # - Button linked to file
-            else:
-                self.openFile = open(name).readlines()
+                header.append(line)
 
-                header = []
-                for index, line in enumerate(self.openFile):
-                    if not line.startswith("#"):
-                        self.function = "".join(self.openFile[index:])
-                        break
+            tags = [f"# {tag}: " for tag in ["NAME", "TEXTCOLOR", "COLOR"]]
 
-                    header.append(line)
+            tagResults = []
 
-                tags = ["# %s: " % tag for tag in ["NAME", "TEXTCOLOR", "COLOR"]]
+            for tag in tags:
+                tagResult = next(
+                    (
+                        line.split(tag)[-1].replace("\n", "")
+                        for line in header
+                        if line.startswith(tag)
+                    ),
+                    None,
+                )
+                tagResults.append(tagResult)
 
-                tagResults = []
+            name, textColor, color = tagResults
 
-                for tag in tags:
-                    tagResult = None
-                    for line in header:
-                        if line.startswith(tag):
-                            tagResult = line.split(tag)[-1].replace("\n", "")
-                            break
+            if textColor and name:
+                name = f'<font color = "{textColor}">{name}</font>'
 
-                    tagResults.append(tagResult)
-
-                name, textColor, color = tagResults
-
-                if textColor and name:
-                    name = '<font color = "%s">%s</font>' % (textColor, name)
-
-                if color:
-                    self.bgColor = color
+            if color:
+                self.bgColor = color
 
         self.setAlignment(QtCore.Qt.AlignCenter)
         self.setMouseTracking(True)
@@ -685,27 +700,28 @@ class HotboxButton(QtWidgets.QLabel):
         """
         Execute script attached to button
         """
-
-        with nuke.toNode(hotboxInstance.groupRoot):
+        constants = Constants()
+        with nuke.toNode(constants.hotboxInstance.groupRoot):
             try:
+                log.debug(self.function)
                 scope = globals().copy()
                 exec(self.function, scope, scope)
 
-            except:
+            except Exception:
                 printError(traceback.format_exc(), self.filePath, self.text())
 
         # if 'close on click' is ticked, close the hotbox
-        if not self.menuButton:
-            if (
-                preferencesNode.knob("hotboxCloseOnClick").value()
-                and preferencesNode.knob("hotboxTriggerDropdown").getValue()
-            ):
-                hotboxInstance.closeHotbox()
+        if not self.menuButton and (
+            preferencesNode.knob("hotboxCloseOnClick").value()
+            and preferencesNode.knob("hotboxTriggerDropdown").getValue()
+        ):
+            constants.hotboxInstance.closeHotbox()
 
     def setSelectionStatus(self, selected=False):
         """
         Define the style of the button for different states
         """
+        constants = Constants()
 
         # if button becomes selected
         if selected:
@@ -729,20 +745,20 @@ class HotboxButton(QtWidgets.QLabel):
                 % (self.borderColor, self.bgColor)
             )
 
-        if preferencesNode.knob("hotboxExecuteOnClose").value():
-            global hotboxInstance
-            if hotboxInstance != None:
-                hotboxInstance.activeButton = None
+        if (
+            preferencesNode.knob("hotboxExecuteOnClose").value()
+            and constants.hotboxInstance != None
+        ):
+            constants.hotboxInstance.activeButton = None
 
-                # if launch mode set to Press and Hold and the button is a menu button,
-                # dont open a submenu upon shortcut release
+            # if launch mode set to Press and Hold and the button is a menu button,
+            # dont open a submenu upon shortcut release
 
-                if (
-                    not self.menuButton
-                    and not preferencesNode.knob("hotboxTriggerDropdown").getValue()
-                ):
-                    if selected:
-                        hotboxInstance.activeButton = self
+            if (
+                not self.menuButton
+                and not preferencesNode.knob("hotboxTriggerDropdown").getValue()
+            ) and selected:
+                constants.hotboxInstance.activeButton = self
 
         self.selected = selected
 
@@ -775,527 +791,7 @@ class HotboxButton(QtWidgets.QLabel):
         return True
 
 
-# ----------------------------------------------------------------------------------------------------------
-# Preferences
-# ----------------------------------------------------------------------------------------------------------
-
-
-def addToPreferences(knobObject, tooltip=None):
-    """
-    Add a knob to the preference panel.
-    Save current preferences to the prefencesfile in the .nuke folder.
-    """
-
-    if knobObject.name() not in preferencesNode.knobs().keys():
-        if tooltip != None:
-            knobObject.setTooltip(tooltip)
-
-        preferencesNode.addKnob(knobObject)
-        savePreferencesToFile()
-        return preferencesNode.knob(knobObject.name())
-
-
-def savePreferencesToFile():
-    """
-    Save current preferences to the prefencesfile in the .nuke folder.
-    Pythonic alternative to the 'ok' button of the preferences panel.
-    """
-
-    nukeFolder = os.path.expanduser("~") + "/.nuke/"
-    preferencesFile = nukeFolder + "preferences{}.{}.nk".format(
-        nuke.NUKE_VERSION_MAJOR, nuke.NUKE_VERSION_MINOR
-    )
-
-    preferencesNode = nuke.toNode("preferences")
-
-    customPrefences = preferencesNode.writeKnobs(
-        nuke.WRITE_USER_KNOB_DEFS
-        | nuke.WRITE_NON_DEFAULT_ONLY
-        | nuke.TO_SCRIPT
-        | nuke.TO_VALUE
-    )
-    customPrefences = customPrefences.replace("\n", "\n  ")
-
-    preferencesCode = (
-        "Preferences {\n inputs 0\n name Preferences%s\n}" % customPrefences
-    )
-    # write to file
-    with open(preferencesFile, "wb") as f:
-        f.write(preferencesCode.encode("utf-8"))
-
-
-def deletePreferences():
-    """
-    Delete all the W_hotbox related items in the properties panel.
-    """
-
-    firstLaunch = True
-    for i in preferencesNode.knobs().keys():
-        if "hotbox" in i:
-            preferencesNode.removeKnob(preferencesNode.knob(i))
-            firstLaunch = False
-
-    # remove TabKnob
-    try:
-        preferencesNode.removeKnob(preferencesNode.knob("hotboxLabel"))
-    except:
-        pass
-
-    if not firstLaunch:
-        savePreferencesToFile()
-
-
-def addPreferences():
-    """
-    Add knobs to the preferences needed for this module to work properly.
-    """
-
-    addToPreferences(nuke.Tab_Knob("hotboxLabel", "W_hotbox"))
-    addToPreferences(nuke.Text_Knob("hotboxGeneralLabel", "<b>General</b>"))
-
-    # version knob to check whether the hotbox was updated
-    knob = nuke.String_Knob("hotboxVersion", "version")
-    knob.setValue(version)
-    addToPreferences(knob)
-    preferencesNode.knob("hotboxVersion").setVisible(False)
-
-    # location knob
-    knob = nuke.File_Knob("hotboxLocation", "Hotbox location")
-
-    tooltip = "The folder on disk the Hotbox uses to store the Hotbox buttons. Make sure this path links to the folder containing the 'All','Single' and 'Multiple' folders."
-
-    locationKnobAdded = addToPreferences(knob, tooltip)
-
-    # icons knob
-    knob = nuke.File_Knob("hotboxIconLocation", "Icons location")
-    knob.setValue(homeFolder + "/icons/W_hotbox")
-
-    tooltip = "The folder on disk the where the Hotbox related icons are stored. Make sure this path links to the folder containing the PNG files."
-    addToPreferences(knob, tooltip)
-
-    # open manager button
-    knob = nuke.PyScript_Knob(
-        "hotboxOpenManager",
-        "open hotbox manager",
-        "W_hotboxManager.showHotboxManager()",
-    )
-    knob.setFlag(nuke.STARTLINE)
-
-    tooltip = "Open the Hotbox Manager."
-
-    addToPreferences(knob, tooltip)
-
-    # open in file system button knob
-    knob = nuke.PyScript_Knob(
-        "hotboxOpenFolder", "open hotbox folder", "W_hotbox.revealInBrowser(True)"
-    )
-
-    tooltip = "Open the folder containing the files that store the Hotbox buttons. It's advised not to mess around in this folder unless you understand what you're doing."
-
-    addToPreferences(knob, tooltip)
-
-    # delete preferences button knob
-    knob = nuke.PyScript_Knob(
-        "hotboxDeletePreferences", "delete preferences", "W_hotbox.deletePreferences()"
-    )
-
-    tooltip = "Delete all the Hotbox related knobs from the Preferences Panel. After clicking this button the Preferences Panel should be closed by clicking the 'cancel' button."
-
-    addToPreferences(knob, tooltip)
-
-    # Launch Label knob
-    addToPreferences(nuke.Text_Knob("hotboxLaunchLabel", "<b>Launch</b>"))
-
-    # shortcut knob
-    knob = nuke.String_Knob("hotboxShortcut", "Shortcut")
-    knob.setValue("`")
-
-    tooltip = (
-        "The key that triggers the Hotbox. Should be set to a single key without any modifier keys. "
-        "Spacebar can be defined as 'space'. Nuke needs be restarted in order for the changes to take effect."
-    )
-
-    addToPreferences(knob, tooltip)
-    global shortcut
-    shortcut = preferencesNode.knob("hotboxShortcut").value()
-
-    # reset shortcut knob
-    knob = nuke.PyScript_Knob("hotboxResetShortcut", "set", "W_hotbox.resetMenuItems()")
-    knob.clearFlag(nuke.STARTLINE)
-    tooltip = "Apply new shortcut."
-
-    addToPreferences(knob, tooltip)
-
-    # trigger mode knob
-    knob = nuke.Enumeration_Knob(
-        "hotboxTriggerDropdown", "Launch mode", ["Press and Hold", "Single Tap"]
-    )
-
-    tooltip = (
-        "The way the hotbox is launched. When set to 'Press and Hold' the Hotbox will appear whenever the shortcut is pressed and disappear as soon as the user releases the key. "
-        "When set to 'Single Tap' the shortcut will toggle the Hotbox on and off."
-    )
-
-    addToPreferences(knob, tooltip)
-
-    # close on click
-    knob = nuke.Boolean_Knob("hotboxCloseOnClick", "Close on button click")
-    knob.setValue(False)
-    knob.clearFlag(nuke.STARTLINE)
-
-    tooltip = "Close the Hotbox whenever a button is clicked (excluding submenus obviously). This option will only take effect when the launch mode is set to 'Single Tap'."
-
-    addToPreferences(knob, tooltip)
-
-    # execute on close
-    knob = nuke.Boolean_Knob("hotboxExecuteOnClose", "Execute button without click")
-    knob.setValue(False)
-    knob.clearFlag(nuke.STARTLINE)
-
-    tooltip = "Execute the button underneath the cursor whenever the Hotbox is closed."
-
-    addToPreferences(knob, tooltip)
-
-    # Rule/Class order
-    knob = nuke.Enumeration_Knob(
-        "hotboxRuleClassOrder", "Order", ["Class - Rule", "Rule - Class"]
-    )
-    tooltip = "The order in which the buttons will be loaded."
-
-    addToPreferences(knob, tooltip)
-
-    # Manager startup default
-    knob = nuke.Enumeration_Knob(
-        "hotboxOpenManagerOptions",
-        "Manager startup default",
-        ["Contextual", "All", "Rules", "Contextual/All", "Contextual/Rules"],
-    )
-    knob.clearFlag(nuke.STARTLINE)
-
-    tooltip = (
-        "The section of the Manager that will be opened on startup.\n"
-        "\n<b>Contextual</b> Open the 'Single' or 'Multiple' section, depending on selection."
-        "\n<b>All</b> Open the 'All' section."
-        "\n<b>Rules</b> Open the 'Rules' section."
-        "\n<b>Contextual/All</b> Contextual if the selection matches a button in the 'Single' or 'Multiple' section, otherwise the 'All' section will be opened."
-        "\n<b>Contextual/Rules</b> Contextual if the selection matches a button in the 'Single' or 'Multiple' section, otherwise the 'Rules' section will be opened."
-    )
-
-    addToPreferences(knob, tooltip)
-
-    # Appearence knob
-    addToPreferences(nuke.Text_Knob("hotboxAppearanceLabel", "<b>Appearance</b>"))
-
-    # color dropdown knob
-    knob = nuke.Boolean_Knob("hotboxMirroredLayout", "Mirrored")
-
-    tooltip = "By default the contextual buttons will appear at the top of the hotbox and the non contextual buttons at the bottom."
-
-    addToPreferences(knob, tooltip)
-
-    # color dropdown knob
-    knob = nuke.Enumeration_Knob(
-        "hotboxColorDropdown", "Color scheme", ["Maya", "Nuke", "Custom"]
-    )
-
-    tooltip = (
-        "The color of the buttons when selected.\n"
-        "\n<b>Maya</b> Autodesk Maya's muted blue."
-        "\n<b>Nuke</b> Nuke's bright orange."
-        "\n<b>Custom</b> which lets the user pick a color."
-    )
-
-    addToPreferences(knob, tooltip)
-
-    # custom color knob
-    knob = nuke.ColorChip_Knob("hotboxColorCustom", "")
-    knob.clearFlag(nuke.STARTLINE)
-
-    tooltip = "The color of the buttons when selected, when the color dropdown is set to 'Custom'."
-
-    addToPreferences(knob, tooltip)
-
-    # hotbox center knob
-    knob = nuke.Boolean_Knob("hotboxColorCenter", "Colorize hotbox center")
-    knob.setValue(True)
-    knob.clearFlag(nuke.STARTLINE)
-
-    tooltip = "Color the center button of the hotbox depending on the current selection. When unticked the center button will be colored a lighter tone of grey."
-
-    addToPreferences(knob, tooltip)
-
-    # auto color text
-    knob = nuke.Boolean_Knob("hotboxAutoTextColor", "Auto adjust text color")
-    knob.setValue(True)
-    knob.clearFlag(nuke.STARTLINE)
-
-    tooltip = "Automatically adjust the color of a button's text to its background color in order to keep enough of a difference to remain readable."
-
-    addToPreferences(knob, tooltip)
-
-    # fontsize knob
-    knob = nuke.Int_Knob("hotboxFontSize", "Font size")
-    knob.setValue(8)
-
-    tooltip = "The font size of the text that appears in the hotbox buttons, unless defined differently on a per-button level."
-
-    addToPreferences(knob, tooltip)
-
-    # fontsize manager's script editor knob
-    knob = nuke.Int_Knob("hotboxScriptEditorFontSize", "Font size script editor")
-    knob.setValue(11)
-    knob.clearFlag(nuke.STARTLINE)
-
-    tooltip = (
-        "The font size of the text that appears in the hotbox manager's script editor."
-    )
-
-    addToPreferences(knob, tooltip)
-
-    addToPreferences(nuke.Text_Knob("hotboxItemsLabel", "<b>Items per Row</b>"))
-
-    # row amount selection knob
-    knob = nuke.Int_Knob("hotboxRowAmountSelection", "Selection specific")
-    knob.setValue(3)
-
-    tooltip = (
-        "The maximum amount of buttons a row in the upper half of the Hotbox can contain. "
-        "When the row's maximum capacity is reached a new row will be started. This new row's maximum capacity will be incremented by the step size."
-    )
-
-    addToPreferences(knob, tooltip)
-
-    # row amount all knob
-    knob = nuke.Int_Knob("hotboxRowAmountAll", "All")
-    knob.setValue(3)
-
-    tooltip = (
-        "The maximum amount of buttons a row in the lower half of the Hotbox can contain. "
-        "When the row's maximum capacity is reached a new row will be started.This new row's maximum capacity will be incremented by the step size."
-    )
-
-    addToPreferences(knob, tooltip)
-
-    # stepsize knob
-    knob = nuke.Int_Knob("hotboxRowStepSize", "Step size")
-    knob.setValue(1)
-
-    tooltip = (
-        "The amount a buttons every new row's maximum capacity will be increased by. "
-        "Having a number unequal to zero will result in a triangular shape when having multiple rows of buttons."
-    )
-
-    addToPreferences(knob, tooltip)
-
-    # spawnmode knob
-    knob = nuke.Boolean_Knob("hotboxButtonSpawnMode", "Add new buttons to the sides")
-    knob.setValue(True)
-    knob.setFlag(nuke.STARTLINE)
-
-    tooltip = "Add new buttons left and right of the row alternately, instead of to the right, in order to preserve muscle memory."
-
-    addToPreferences(knob, tooltip)
-
-    # hide the iconLocation knob if environment varible called 'W_HOTBOX_HIDE_ICON_LOC' is set to 'true' or '1'
-    preferencesNode.knob("hotboxIconLocation").setVisible(True)
-    if "W_HOTBOX_HIDE_ICON_LOC" in os.environ.keys():
-        if os.environ["W_HOTBOX_HIDE_ICON_LOC"].lower() in ["true", "1"]:
-            preferencesNode.knob("hotboxIconLocation").setVisible(False)
-
-    savePreferencesToFile()
-
-
-def updatePreferences():
-    """
-    Check whether the hotbox was updated since the last launch. If so refresh the preferences.
-    """
-
-    allKnobs = preferencesNode.knobs().keys()
-
-    # Older versions of the hotbox had a knob called 'iconLocation'.
-    # This was a mistake and the knob was supposed to be called
-    #'hotboxIconLocation', similar to the rest of the knobs.
-
-    forceUpdate = False
-
-    if "iconLocation" in allKnobs and "hotboxIconLocation" not in allKnobs:
-        currentSetting = preferencesNode.knob("iconLocation").value()
-
-        # delete 'iconLocation'
-        preferencesNode.removeKnob(preferencesNode.knob("iconLocation"))
-
-        # re-add 'hotboxIconLocation'
-        iconLocationKnob = nuke.File_Knob("hotboxIconLocation", "Icons location")
-        iconLocationKnob.setValue(currentSetting)
-        addToPreferences(iconLocationKnob)
-
-        forceUpdate = True
-
-    allKnobs = preferencesNode.knobs().keys()
-    proceedUpdate = True
-
-    if "hotboxVersion" in allKnobs or forceUpdate:
-        if not forceUpdate:
-            try:
-                if float(version) == float(
-                    preferencesNode.knob("hotboxVersion").value()
-                ):
-                    proceedUpdate = False
-            except:
-                proceedUpdate = True
-
-        if proceedUpdate:
-            currentSettings = {
-                knob: preferencesNode.knob(knob).value()
-                for knob in allKnobs
-                if knob.startswith("hotbox") and knob != "hotboxVersion"
-            }
-
-            # delete all the preferences
-            deletePreferences()
-
-            # re-add all the knobs
-            addPreferences()
-
-            # restore
-            for knob in currentSettings.keys():
-                try:
-                    preferencesNode.knob(knob).setValue(currentSettings[knob])
-                except:
-                    pass
-
-            # save to file
-            savePreferencesToFile()
-
-    # nuke 12.2v4 and 13 bug. The last tab wont be shown. Workaround is to add an extra tab
-    customTabs = [
-        k.name()
-        for k in preferencesNode.knobs().values()
-        if isinstance(k, nuke.Tab_Knob)
-    ]
-    if customTabs and customTabs[-1] == "hotboxLabel":
-        # make new tab and hide it
-        dummyTab = nuke.Tab_Knob("hotboxDummyTab", "Dummy")
-        dummyTab.setFlag(0x00040000)
-
-        addToPreferences(dummyTab)
-
-
-# - Color
-
-
-def interface2rgb(hexValue, normalize=True):
-    """
-    Convert a color stored as a 32 bit value as used by nuke for interface colors to normalized rgb values.
-
-    """
-    return [(0xFF & hexValue >> i) / 255.0 for i in [24, 16, 8]]
-
-
-def rgb2hex(rgbaValues):
-    """
-    Convert a color stored as normalized rgb values to a hex.
-    """
-
-    rgbaValues = [int(i * 255) for i in rgbaValues]
-
-    if len(rgbaValues) < 3:
-        return
-
-    return "#%02x%02x%02x" % (rgbaValues[0], rgbaValues[1], rgbaValues[2])
-
-
-def hex2rgb(hexColor):
-    """
-    Convert a color stored as hex to rgb values.
-    """
-
-    hexColor = hexColor.lstrip("#")
-    return tuple(int(hexColor[i : i + 2], 16) for i in (0, 2, 4))
-
-
-def rgb2interface(rgb):
-    """
-    Convert a color stored as rgb values to a 32 bit value as used by nuke for interface colors.
-    """
-    if len(rgb) == 3:
-        rgb = rgb + (255,)
-
-    return int("%02x%02x%02x%02x" % rgb, 16)
-
-
-def getTileColor(node=None):
-    """
-    If a node has it's color set automatically, the 'tile_color' knob will return 0.
-    If so, this function will scan through the preferences to find the correct color value.
-    """
-
-    if not node:
-        node = nuke.selectedNode()
-
-    interfaceColor = node.knob("tile_color").value()
-
-    if interfaceColor == 0:
-        interfaceColor = nuke.defaultNodeColor(node.Class())
-
-    return interfaceColor
-
-
-def getSelectionColor():
-    """
-    Return color to be used for the selected items of the hotbox.
-    """
-
-    customColor = rgb2hex(
-        interface2rgb(preferencesNode.knob("hotboxColorCustom").value())
-    )
-    colorMode = int(preferencesNode.knob("hotboxColorDropdown").getValue())
-
-    return ["#5285a6", "#f7931e", customColor][colorMode]
-
-
-def revealInBrowser(startFolder=False):
-    """
-    Reveal the hotbox folder in a filebrowser
-    """
-    if startFolder:
-        path = getHotBoxLocation()
-
-    else:
-        try:
-            path = hotboxInstance.topLayout.folderList[0]
-        except:
-            path = hotboxInstance.topLayout.path + hotboxInstance.mode
-
-    if not os.path.exists(path):
-        path = os.path.dirname(path)
-
-    if operatingSystem == "Windows":
-        os.startfile(path)
-    elif operatingSystem == "Darwin":
-        subprocess.Popen(["open", path])
-    else:
-        subprocess.Popen(["xdg-open", path])
-
-
-def getFileBrowser():
-    """
-    Determine the name of the file browser on the current system.
-    """
-
-    if operatingSystem == "Windows":
-        fileBrowser = "Explorer"
-    elif operatingSystem == "Darwin":
-        fileBrowser = "Finder"
-    else:
-        fileBrowser = "file browser"
-
-    return fileBrowser
-
-
 # - error catching
-
-
 def printError(error, path="", buttonName="", rule=False):
     """
     Format error message and print it to the scripteditor and shell.
@@ -1316,7 +812,7 @@ def printError(error, path="", buttonName="", rule=False):
             index = len(fullError) - index
             break
 
-    lineNumber = (" -" + lineNumber) * bool(lineNumber)
+    lineNumber = f" -{lineNumber}" * bool(lineNumber)
 
     fullError = fullError[index:]
     errorDescription = "\n".join(fullError)
@@ -1327,12 +823,12 @@ def printError(error, path="", buttonName="", rule=False):
         scriptFolderName = os.path.basename(scriptFolder)
 
         while len(scriptFolderName) == 3 and scriptFolderName.isdigit():
-            name = open(scriptFolder + "/_name.json").read()
+            name = open(f"{scriptFolder}/_name.json").read()
             buttonName.insert(0, name)
             scriptFolder = os.path.dirname(scriptFolder)
             scriptFolderName = os.path.basename(scriptFolder)
 
-        for i in range(2):
+        for _ in range(2):
             buttonName.insert(0, os.path.basename(scriptFolder))
             scriptFolder = os.path.dirname(scriptFolder)
 
@@ -1354,57 +850,59 @@ def printError(error, path="", buttonName="", rule=False):
 
 
 def showHotbox(force=False, resetPosition=True):
-    global hotboxInstance
+    constants = Constants()
 
     # is launch mode is set to single tap, close the hotbox if it's open
-    if preferencesNode.knob("hotboxTriggerDropdown").getValue() and not force:
-        if hotboxInstance != None and hotboxInstance.active:
-            hotboxInstance.closeHotbox(hotkey=True)
-            return
+    if (
+        preferencesNode.knob("hotboxTriggerDropdown").getValue()
+        and not force
+        and (constants.hotboxInstance != None and constants.hotboxInstance.active)
+    ):
+        constants.hotboxInstance.closeHotbox(hotkey=True)
+        return
 
     if force:
-        hotboxInstance.active = False
-        hotboxInstance.close()
+        constants.hotboxInstance.active = False
+        constants.hotboxInstance.close()
 
     if resetPosition:
-        global lastPosition
-        lastPosition = ""
+        constants.lastPosition = ""
 
-    if hotboxInstance == None or not hotboxInstance.active:
-        hotboxInstance = Hotbox(position=lastPosition)
-        hotboxInstance.show()
+    if constants.hotboxInstance is None or not constants.hotboxInstance.active:
+        constants.hotboxInstance = Hotbox(position=constants.lastPosition)
+        constants.hotboxInstance.show()
 
 
 def showHotboxSubMenu(path, name):
-    global hotboxInstance
-    hotboxInstance.active = False
-    if hotboxInstance == None or not hotboxInstance.active:
-        hotboxInstance = Hotbox(True, path, name)
-        hotboxInstance.show()
+    constants = Constants()
+    constants.hotboxInstance.active = False
+    if constants.hotboxInstance is None or not constants.hotboxInstance.active:
+        constants.hotboxInstance = Hotbox(True, path, name)
+        constants.hotboxInstance.show()
 
 
 def showHotboxManager():
     """
     Open the hotbox manager from the hotbox
     """
-    hotboxInstance.closeHotbox()
+    constants = Constants()
+
+    constants.hotboxInstance.closeHotbox()
     W_hotboxManager.showHotboxManager()
 
 
 # - menu items
-
-
 def addMenuItems():
     """
     Add items to the Nuke menu
     """
-
-    editMenu.addCommand("W_hotbox/Open W_hotbox", showHotbox, shortcut)
+    constants = Constants()
+    editMenu.addCommand("W_hotbox/Open W_hotbox", showHotbox, constants.shortcut)
     editMenu.addCommand("W_hotbox/-", "", "")
     editMenu.addCommand(
         "W_hotbox/Open Hotbox Manager", "W_hotboxManager.showHotboxManager()"
     )
-    editMenu.addCommand("W_hotbox/Open in %s" % getFileBrowser(), revealInBrowser)
+    editMenu.addCommand(f"W_hotbox/Open in {getFileBrowser()}", revealInBrowser)
     editMenu.addCommand("W_hotbox/-", "", "")
     editMenu.addCommand("W_hotbox/Repair", "W_hotboxManager.repairHotbox()")
     editMenu.addCommand(
@@ -1431,11 +929,11 @@ def addMenuItems():
 
 def resetMenuItems():
     """
-    Remove and readd all items to the Nuke menu. Used to change the shotcut
+    Remove and read all items to the Nuke menu. Used to change the shotcut
     """
 
-    global shortcut
-    shortcut = preferencesNode.knob("hotboxShortcut").value()
+    constants = Constants()
+    constants.shortcut = preferencesNode.knob("hotboxShortcut").value()
 
     if editMenu.findItem("W_hotbox"):
         editMenu.removeItem("W_hotbox")
@@ -1444,8 +942,7 @@ def resetMenuItems():
 
 
 # add knobs to preferences
-preferencesNode = nuke.toNode("preferences")
-homeFolder = os.getenv("HOME").replace("\\", "/") + "/.nuke"
+
 
 updatePreferences()
 addPreferences()
@@ -1455,7 +952,7 @@ hotboxLocationPathKnob = preferencesNode.knob("hotboxLocation")
 hotboxLocationPath = getHotBoxLocation()
 
 if not hotboxLocationPath:
-    hotboxLocationPath = homeFolder + "/W_hotbox"
+    hotboxLocationPath = f"{homeFolder}/W_hotbox"
     hotboxLocationPathKnob.setValue(hotboxLocationPath)
 
 if hotboxLocationPath[-1] != "/":
@@ -1472,11 +969,8 @@ for subFolder in [
 ]:
     subFolderPath = hotboxLocationPath + subFolder
     if not os.path.isdir(subFolderPath):
-        try:
-            os.mkdir(subFolderPath)
-        except:
-            pass
-
+        with contextlib.suppress(Exception):
+            os.makedirs(subFolderPath)
 
 # menu items
 editMenu = nuke.menu("Nuke").findItem("Edit")
@@ -1494,7 +988,7 @@ W_HOTBOX_REPO_NAMES=name1:name2:name3
 
 extraRepositories = []
 
-if "W_HOTBOX_REPO_PATHS" in os.environ and "W_HOTBOX_REPO_NAMES" in os.environ.keys():
+if "W_HOTBOX_REPO_PATHS" in os.environ and "W_HOTBOX_REPO_NAMES" in os.environ:
     extraRepositoriesPaths = os.environ["W_HOTBOX_REPO_PATHS"].split(os.pathsep)
     extraRepositoriesNames = os.environ["W_HOTBOX_REPO_NAMES"].split(os.pathsep)
 
@@ -1513,21 +1007,15 @@ if "W_HOTBOX_REPO_PATHS" in os.environ and "W_HOTBOX_REPO_NAMES" in os.environ.k
         ]:
             extraRepositories.append([name, path])
 
-    if len(extraRepositories) > 0:
+    if extraRepositories:
         editMenu.addCommand("W_hotbox/-", "", "")
         for repo in extraRepositories:
             editMenu.addCommand(
-                "W_hotbox/Special/Open Hotbox Manager - {}".format(repo[0]),
-                'W_hotboxManager.showHotboxManager(path="{}")'.format(repo[1]),
+                f"W_hotbox/Special/Open Hotbox Manager - {repo[0]}",
+                f'W_hotboxManager.showHotboxManager(path="{repo[1]}")',
             )
 
 
-hotboxInstance = None
-lastPosition = ""
-
-
 nuke.tprint(
-    "W_hotbox v{}, built {}.\nCopyright (c) 2016-{} Wouter Gilsing. All Rights Reserved.".format(
-        version, releaseDate, releaseDate.split()[-1]
-    )
+    f"W_hotbox v{version}, built {releaseDate}.\nCopyright (c) 2016-{releaseDate.split()[-1]} Wouter Gilsing. All Rights Reserved."
 )
