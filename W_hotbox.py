@@ -624,7 +624,7 @@ class HotboxButton(QtWidgets.QLabel):
             if os.path.isdir(self.filePath):
                 self.menuButton = True
                 name = open(self.filePath + "/_name.json").read()
-                self.function = 'showHotboxSubMenu("%s","%s")' % (self.filePath, name)
+                self.function = 'showHotboxSubMenu(r"%s","%s")' % (self.filePath, name)
                 self.bgColor = "#333333"
 
             # - Button linked to file
