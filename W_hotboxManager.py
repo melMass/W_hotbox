@@ -3529,7 +3529,7 @@ def getAttributeFromFile(path, attribute="name"):
     elif attribute == "name":
         nameFile = f"{path}/_name.json"
         if os.path.isfile(nameFile):
-            with open("nameFile", encoding="utf-8") as f:
+            with open(nameFile, encoding="utf-8") as f:
                 return f.read()
 
     return None
