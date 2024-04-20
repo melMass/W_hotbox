@@ -1,39 +1,34 @@
-# ----------------------------------------------------------------------------------------------------------
-# Wouter Gilsing
-# woutergilsing@hotmail.com
-
+from pathlib import Path
 
 # - modules
 import nuke
 
 from W_hotbox_utils import (
+    log,
+    Constants,
+    getFileBrowser,
     getHotBoxLocation,
+    getSelectionColor,
+    getTileColor,
+    homeFolder,
+    interface2rgb,
     operatingSystem,
     preferencesNode,
-    version,
+    read_lines,
     releaseDate,
-    getFileBrowser,
-    interface2rgb,
-    getTileColor,
-    rgb2hex,
-    getSelectionColor,
     revealInBrowser,
+    rgb2hex,
     updatePreferences,
-    homeFolder,
-    Constants,
+    version,
 )
-from M_Log import mklog
 
-log = mklog("W_hotbox")
-
-from PySide2 import QtGui, QtCore, QtWidgets
-
-import os
-import traceback
 import colorsys
 import contextlib
+import os
+import traceback
 
 import W_hotboxManager
+from PySide2 import QtCore, QtGui, QtWidgets
 from W_hotbox_utils import addPreferences
 
 
@@ -269,7 +264,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
 
             if mode:
                 self.folderList += [
-                    f"{repository}All" for repository in self.allRepositories
+                    repository / "All" for repository in self.allRepositories
                 ]
 
             else:
@@ -285,31 +280,31 @@ class NodeButtons(QtWidgets.QVBoxLayout):
                 ignoreClasses = False
                 tag = "# IGNORE CLASSES: "
 
-                allRulePaths = []
+                allRulePaths: list[Path] = []
 
                 for repository in self.allRepositories:
-                    rulesFolder = f"{repository}Rules"
-                    if not os.path.exists(rulesFolder):
+                    rulesFolder = repository / "Rules"
+                    if not rulesFolder.exists():
                         continue
 
                     rules = [
-                        "/".join([rulesFolder, rule])
-                        for rule in os.listdir(rulesFolder)
-                        if rule[0] not in ["_", "."] and rule[-1] != "_"
+                        rulesFolder / rule
+                        for rule in rulesFolder.iterdir()
+                        if rule.name[0] not in ["_", "."] and rule.name[-1] != "_"
                     ]
 
                     # validate rules
                     for rule in rules:
-                        log.debug(f"Validating rules: {rule}")
+                        # log.debug(f"Validating rules: {rule}")
 
-                        ruleFile = f"{rule}/_rule.py"
+                        ruleFile = rule / "_rule.py"
 
-                        if os.path.exists(ruleFile) and self.validateRule(ruleFile):
+                        if ruleFile.exists() and self.validateRule(ruleFile):
                             allRulePaths.append(rule)
 
                             # read ruleFile to check if ignoreClasses was enabled.
                             if not ignoreClasses:
-                                with open(ruleFile, encoding="utf-8") as f:
+                                with ruleFile.open(encoding="utf-8") as f:
                                     for line in f:
                                         # no point in checking boyond the header
                                         if not line.startswith("#"):
@@ -327,10 +322,9 @@ class NodeButtons(QtWidgets.QVBoxLayout):
 
                 # - classes
                 # collect all folders storing buttons for applicable classes
+                allClassPaths: list[Path] = []
 
                 if not ignoreClasses:
-                    allClassPaths = []
-
                     nodeClasses = list({node.Class() for node in selectedNodes})
 
                     # if nothing selected
@@ -371,9 +365,9 @@ class NodeButtons(QtWidgets.QVBoxLayout):
                         for nodeClass in nodeClasses:
                             if isinstance(nodeClass, list):
                                 for managerNodeClasses in [
-                                    i
-                                    for i in os.listdir(f"{repository}Multiple")
-                                    if i[0] not in ["_", "."]
+                                    i.as_posix()
+                                    for i in (repository / "Multiple").iterdir()
+                                    if i.name[0] not in ["_", "."]
                                 ]:
                                     managerNodeClassesList = managerNodeClasses.split(
                                         "-"
@@ -386,15 +380,17 @@ class NodeButtons(QtWidgets.QVBoxLayout):
 
                                     if len(match) >= len(nodeClass):
                                         allClassPaths.append(
-                                            f"{repository}Multiple/{managerNodeClasses}"
+                                            repository / "Multiple" / managerNodeClasses
                                         )
                             else:
-                                allClassPaths.append(f"{repository}Single/{nodeClass}")
+                                allClassPaths.append(repository / "Single" / nodeClass)
 
+                    log.debug(
+                        "All Class Paths",
+                        "\n\t".join([x.as_posix() for x in allClassPaths]),
+                    )
                     allClassPaths = list(set(allClassPaths))
-                    allClassPaths = [
-                        path for path in allClassPaths if os.path.exists(path)
-                    ]
+                    allClassPaths = [path for path in allClassPaths if path.exists()]
 
                 # - combine classes and rules
                 if ignoreClasses:
@@ -411,9 +407,9 @@ class NodeButtons(QtWidgets.QVBoxLayout):
 
             for folder in self.folderList:
                 allItems.extend(
-                    "/".join([folder, file])
-                    for file in sorted(os.listdir(folder))
-                    if file[0] not in [".", "_"] and len(file) in {3, 6}
+                    file
+                    for file in sorted(folder.iterdir())
+                    if file.name[0] not in [".", "_"] and len(file.name) in {3, 6}
                 )
         row = []
 
@@ -461,7 +457,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
         Run the rule, return True or False.
         """
 
-        log.debug(f"Validation the rule from {ruleFile}")
+        # log.debug(f"Validation the rule from {ruleFile}")
 
         error = False
 
@@ -481,7 +477,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
             # run rule
             try:
                 scope = {}
-                log.debug(ruleString)
+                # log.debug(ruleString)
                 exec(ruleString, scope, scope)
 
                 if "ret" in scope:
@@ -626,28 +622,27 @@ class HotboxButton(QtWidgets.QLabel):
 
         # set the border color to grey for buttons from an additional repository
         for i in extraRepositories:
-            if name.startswith(i[1]):
+            # print(i)
+            # print(name)
+            if str(name).startswith(str(i[1])):
                 self.borderColor = "#959595"
                 break
 
         if function != None:
             self.function = function
 
-        elif os.path.isdir(self.filePath):
+        elif Path(self.filePath).is_dir():
             self.menuButton = True
-            with open(f"{self.filePath}/_name.json", encoding="utf-8") as f:
-                name = f.read()
+            name = (Path(self.filePath) / "_name.json").read_text(encoding="utf-8")
             self.function = f'showHotboxSubMenu(r"{self.filePath}","{name}")'
             self.bgColor = "#333333"
 
         else:
-            with open(name, encoding="utf-8") as f:
-                self.openFile = f.readlines()
-
+            self.openFile = read_lines(Path(name))
             header = []
             for index, line in enumerate(self.openFile):
                 if not line.startswith("#"):
-                    self.function = "".join(self.openFile[index:])
+                    self.function = "\n".join(self.openFile[index:])
                     break
 
                 header.append(line)
@@ -703,7 +698,7 @@ class HotboxButton(QtWidgets.QLabel):
         constants = Constants()
         with nuke.toNode(constants.hotboxInstance.groupRoot):
             try:
-                log.debug(self.function)
+                # log.debug(self.function)
                 scope = globals().copy()
                 exec(self.function, scope, scope)
 
@@ -941,9 +936,9 @@ def resetMenuItems():
     addMenuItems()
 
 
+# - Globals
+
 # add knobs to preferences
-
-
 updatePreferences()
 addPreferences()
 
@@ -952,11 +947,11 @@ hotboxLocationPathKnob = preferencesNode.knob("hotboxLocation")
 hotboxLocationPath = getHotBoxLocation()
 
 if not hotboxLocationPath:
-    hotboxLocationPath = f"{homeFolder}/W_hotbox"
-    hotboxLocationPathKnob.setValue(hotboxLocationPath)
+    hotboxLocationPath = homeFolder / "W_hotbox"
+    hotboxLocationPathKnob.setValue(hotboxLocationPath.as_posix())
 
-if hotboxLocationPath[-1] != "/":
-    hotboxLocationPath += "/"
+# if hotboxLocationPath[-1] != "/":
+# hotboxLocationPath += "/"
 
 for subFolder in [
     "",
@@ -967,10 +962,11 @@ for subFolder in [
     "Single/No Selection",
     "Templates",
 ]:
-    subFolderPath = hotboxLocationPath + subFolder
-    if not os.path.isdir(subFolderPath):
+    subFolderPath = hotboxLocationPath / subFolder
+    if not subFolderPath.exists():
         with contextlib.suppress(Exception):
-            os.makedirs(subFolderPath)
+            subFolderPath.mkdir()
+
 
 # menu items
 editMenu = nuke.menu("Nuke").findItem("Edit")
@@ -995,11 +991,11 @@ if "W_HOTBOX_REPO_PATHS" in os.environ and "W_HOTBOX_REPO_NAMES" in os.environ:
     for index, i in enumerate(
         range(min(len(extraRepositoriesPaths), len(extraRepositoriesNames)))
     ):
-        path = extraRepositoriesPaths[index].replace("\\", "/")
+        path = Path(extraRepositoriesPaths[index])
 
         # make sure last character is a '/'
-        if path[-1] != "/":
-            path += "/"
+        # if path[-1] != "/":
+        # path += "/"
 
         name = extraRepositoriesNames[index]
         if name not in [i[0] for i in extraRepositories] and path not in [
@@ -1012,7 +1008,7 @@ if "W_HOTBOX_REPO_PATHS" in os.environ and "W_HOTBOX_REPO_NAMES" in os.environ:
         for repo in extraRepositories:
             editMenu.addCommand(
                 f"W_hotbox/Special/Open Hotbox Manager - {repo[0]}",
-                f'W_hotboxManager.showHotboxManager(path="{repo[1]}")',
+                f'W_hotboxManager.showHotboxManager(path="{repo[1].as_posix()}")',
             )
 
 

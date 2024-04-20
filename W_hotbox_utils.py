@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*-
-import nuke
+import contextlib
 import os
 import platform
-import contextlib
 import subprocess
+from pathlib import Path
+
+import nuke
 
 # region constants
+
+from mtb.core import mklog
+
+log = mklog("W_hotbox")
 
 # - true constants
 version = "1.9"
 releaseDate = "March 28 2021"
 preferencesNode = nuke.toNode("preferences")
 operatingSystem = platform.system()
-homeFolder = os.getenv("HOME").replace("\\", "/") + "/.nuke"
+homeFolder = Path.home() / ".nuke"
 
 
 # - mutable constant singleton
@@ -223,7 +229,7 @@ def addPreferences():
 
     # - icons knob
     knob = nuke.File_Knob("hotboxIconLocation", "Icons location")
-    knob.setValue(f"{homeFolder}/icons/W_hotbox")
+    knob.setValue((homeFolder / "icons" / "W_hotbox").as_posix())
 
     addPrefKnob(
         knob,
@@ -519,16 +525,16 @@ def getSelectionColor():
 
 
 # region OS
-def getHotBoxLocation(path=None):
+def getHotBoxLocation(path=None) -> Path:
     """
     Returns the location of the hotbox.
     """
     folder = ""
     folder = path or preferencesNode.knob("hotboxLocation").value()
-    if folder[-1] != "/":
-        folder += "/"
+    # if folder[-1] != "/":
+    # folder += "/"
 
-    return os.path.expandvars(folder.replace("\\", "/"))
+    return Path(os.path.expandvars(folder))
 
 
 def revealInBrowser(startFolder=False):
@@ -569,6 +575,60 @@ def getFileBrowser():
         return "Explorer"
     else:
         return "file browser"
+
+
+def getFirstAvailableFilePath(folder: Path) -> Path:
+    """
+    loop over content of folder to find an appropriate name for the new item
+    """
+
+    newFileName = "001"
+
+    content = [f for f in folder.iterdir() if f.name[0] not in [".", "_"]]
+    content.sort()
+
+    while newFileName in [i.name[:3] for i in content]:
+        newFileName = str(int(newFileName) + 1).zfill(3)
+
+    return folder / newFileName
+
+
+def read_lines(path: Path) -> list[str]:
+    return path.read_text(encoding="utf-8").split("\n")
+
+
+def getAttributeFromFile(path: Path, attribute: str = "name"):
+    """
+    Scan file for the appropriate attribute.
+    By default attribute is name. If no attribute found, return None
+    """
+
+    if path.is_file():
+        tag = f"# {attribute.upper()}: "
+        for line in read_lines(path):
+            if not line.startswith("#"):
+                break
+
+            if line.startswith(tag):
+                return line.split(tag)[-1].replace("\n", "")
+    elif attribute == "name":
+        nameFile = path / "_name.json"
+        if nameFile.is_file():
+            return nameFile.read_text(encoding="utf-8")
+
+    return None
+
+
+def getScriptFromFile(path: Path):
+    """
+    Extract the appropriate fucntion from the file. If no name found, return None
+    """
+    if path.is_file():
+        lines = read_lines(path)
+        for index, line in enumerate(lines):
+            if not line.startswith("#"):
+                return "\n".join(lines[index + 1 :]).replace("\t", " " * 4)
+    return None
 
 
 # endregion

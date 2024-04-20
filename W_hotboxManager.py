@@ -1,18 +1,27 @@
-# ----------------------------------------------------------------------------------------------------------
-# Wouter Gilsing
-# woutergilsing@hotmail.com
-from W_hotbox_utils import version, releaseDate, getHotBoxLocation, preferencesNode
+from typing import Optional, Union
 
-# - modules
+from W_hotbox_utils import (
+    log,
+    Constants,
+    getAttributeFromFile,
+    getFirstAvailableFilePath,
+    getHotBoxLocation,
+    getScriptFromFile,
+    getTileColor,
+    hex2rgb,
+    interface2rgb,
+    preferencesNode,
+    read_lines,
+    releaseDate,
+    rgb2hex,
+    rgb2interface,
+    version,
+)
+
 import nuke
-
 import pathlib
 
-# Choose between PySide and PySide2 based on Nuke version
-if nuke.NUKE_VERSION_MAJOR < 11:
-    from PySide import QtCore, QtGui, QtGui as QtWidgets
-else:
-    from PySide2 import QtGui, QtCore, QtWidgets
+from PySide2 import QtGui, QtCore, QtWidgets
 
 import os
 import shutil
@@ -24,21 +33,13 @@ import tempfile
 import tarfile
 import base64
 import contextlib
-
+from pathlib import Path
 from datetime import datetime as dt
 from webbrowser import open as openURL
-from W_hotbox_utils import (
-    hex2rgb,
-    rgb2hex,
-    interface2rgb,
-    rgb2interface,
-    getTileColor,
-    Constants,
-)
 
 
 class HotboxManager(QtWidgets.QWidget):
-    def __init__(self, path=""):
+    def __init__(self, path: Union[Path, str] = ""):
         super(HotboxManager, self).__init__()
 
         # - main widget
@@ -57,8 +58,12 @@ class HotboxManager(QtWidgets.QWidget):
         self.activeColor = "#3a3a3a"
         self.lockedColor = "#262626"
 
-        self.rootLocation = path.replace("\\", "/")
+        if isinstance(path, Path):
+            self.rootLocation = path
+        else:
+            self.rootLocation = Path(path)
 
+        self.path = self.rootLocation
         # - create folders
 
         # If the manager is launched for the default repository, make sure the current archive exists.
@@ -75,12 +80,12 @@ class HotboxManager(QtWidgets.QWidget):
                 "Rules",
                 "Templates",
             ]:
-                subFolderPath = self.rootLocation + subFolder
-                if not os.path.isdir(subFolderPath):
+                subFolderPath = self.rootLocation / subFolder
+                if not subFolderPath.is_dir():
                     with contextlib.suppress(Exception):
-                        os.mkdir(subFolderPath)
+                        subFolderPath.mkdir()
 
-        self.templateLocation = f"{self.rootLocation}Templates/"
+        self.templateLocation = self.rootLocation / "Templates"
 
         # - left column - classes list
         self.classesListLayout = QtWidgets.QVBoxLayout()
@@ -307,7 +312,7 @@ class HotboxManager(QtWidgets.QWidget):
 
         self.scriptEditorScript.save.connect(self.saveScriptEditor)
 
-        ScriptEditorHighlighter(self.scriptEditorScript.document())
+        _ = ScriptEditorHighlighter(self.scriptEditorScript.document())
 
         scriptEditorFont = QtGui.QFont()
         scriptEditorFont.setFamily("Courier")
@@ -415,6 +420,7 @@ class HotboxManager(QtWidgets.QWidget):
         Populate classes list with items.
         """
 
+        log.debug("Building class list")
         # if restore based on index, save current index before clearing the widget.
         if isinstance(selectItem, bool) and selectItem:
             itemIndex = self.classesList.currentRow()
@@ -438,7 +444,7 @@ class HotboxManager(QtWidgets.QWidget):
         # disable scripteditor
         self.enableScriptEditor(False, False)
 
-        self.path = self.rootLocation + self.mode
+        self.path = self.rootLocation / self.mode
 
         # color
         color = self.activeColor
@@ -450,15 +456,17 @@ class HotboxManager(QtWidgets.QWidget):
             self.classesList.setEnabled(False)
 
         if self.contextual:
+            log.debug("Contextual")
             # sort items found on disk
-            allItems = sorted(os.listdir(self.path), key=lambda s: s.lower())
-            allItems = [
-                folder
-                for folder in allItems
-                if os.path.isdir(f"{self.path}/{folder}")
-                and folder[0] not in [".", "_"]
-            ]
-
+            allItems = sorted(
+                [
+                    x.name
+                    for x in self.path.iterdir()
+                    if x.is_dir() and x.name[0] not in [".", "_"]
+                ],
+                key=lambda s: s.lower(),
+            )
+            log.debug(allItems)
             # add items
             self.classesList.addItems(allItems)
 
@@ -511,18 +519,18 @@ class HotboxManager(QtWidgets.QWidget):
 
         # in case name allready exists
         counter = 1
-        while os.path.isdir(f"{self.path}/{name}"):
+        while (self.path / name).is_dir():
             name = defaultName + str(counter)
             counter += 1
 
         # create folder on disk
-        folderPath = "/".join([self.path, name])
-        os.mkdir(folderPath)
+        folderPath = self.path / name
+        folderPath.mkdir()
 
         # create rule file
         if self.mode == "Rules":
-            with open(f"{folderPath}/_rule.py", "w") as ruleFile:
-                ruleFile.write(FileHeader("0", rule=True).getHeader())
+            (folderPath / "_rule.py").write_text(FileHeader("0", rule=True).getHeader())
+
         self.buildClassesList(name)
         self.renameClass(True)
 
@@ -540,17 +548,13 @@ class HotboxManager(QtWidgets.QWidget):
                 return
 
         # move to old folder
-        oldFolder = "/".join([self.path, "_old"])
-        if not os.path.isdir(oldFolder):
-            os.mkdir(oldFolder)
+        oldFolder = self.path / "_old"
+        if not oldFolder.is_dir():
+            oldFolder.mkdir()
 
         shutil.move(
-            f"{self.path}/{selectedClass}",
-            self.path
-            + "/_old/"
-            + selectedClass
-            + "_"
-            + dt.now().strftime("%Y%m%d%H%M%S"),
+            self.path / selectedClass,
+            self.path / "_old" / f"{selectedClass}_{dt.now().strftime('%Y%m%d%H%M%S')}",
         )
 
         self.buildClassesList(True)
@@ -610,12 +614,13 @@ class HotboxManager(QtWidgets.QWidget):
             else:
                 item = self.classesList.currentItem()
                 itemState = 1 - bool(item.checkState())
-                self.loadedScript = "/".join(
-                    [self.path, item.text() + "_" * itemState, "_rule.py"]
+                self.loadedScript = (
+                    self.path / (item.text() + "_" * itemState) / "_rule.py"
                 )
 
+            self.loadedScript = Path(self.loadedScript)
             # if item (not submenu)
-            if self.loadedScript.endswith(".py"):
+            if self.loadedScript.name.endswith(".py"):
                 self.enableScriptEditor()
 
                 if not rule:
@@ -637,8 +642,8 @@ class HotboxManager(QtWidgets.QWidget):
 
                 # rule
                 else:
-                    ignoreClasses = int(
-                        getAttributeFromFile(self.loadedScript, "ignore classes")
+                    ignoreClasses = bool(
+                        getAttributeFromFile(self.loadedScript, "ignore classes") or 0
                     )
 
                     self.ignoreSave = True
@@ -652,8 +657,7 @@ class HotboxManager(QtWidgets.QWidget):
 
             else:
                 # set name
-                with open(f"{self.loadedScript}/_name.json", encoding="utf-8") as f:
-                    name = f.read()
+                name = (self.loadedScript / "_name.json").read_text(encoding="utf-8")
                 self.scriptEditorName.setText(name)
                 self.enableScriptEditor(False, True)
 
@@ -704,12 +708,13 @@ class HotboxManager(QtWidgets.QWidget):
 
         if self.scriptEditorImportButton.isEnabled():
             importFile = nuke.getFilename("select file to  import", "*.py *.json")
-            # replace tabs with spaces
-            with open(importFile, encoding="utf-8") as f:
-                text = f.read().replace("\t", " " * 4)
+            if importFile:
+                # replace tabs with spaces
+                with open(importFile, encoding="utf-8") as f:
+                    text = f.read().replace("\t", " " * 4)
 
-            self.scriptEditorScript.setPlainText(text)
-            self.scriptEditorScript.setFocus()
+                self.scriptEditorScript.setPlainText(text)
+                self.scriptEditorScript.setFocus()
 
     def saveScriptEditor(self, template=False):
         """
@@ -727,13 +732,13 @@ class HotboxManager(QtWidgets.QWidget):
 
             if template:
                 path = getFirstAvailableFilePath(self.templateLocation)
-                path += ".py"
+                path = path.with_suffix(".py")
 
             else:
                 path = self.loadedScript
 
             # file
-            if path.endswith(".py"):
+            if path.name.endswith(".py"):
                 text = self.scriptEditorScript.toPlainText()
 
                 if not rule:
@@ -753,22 +758,24 @@ class HotboxManager(QtWidgets.QWidget):
                         + text
                     )
 
-                with open(path, "w") as currentFile:
-                    currentFile.write(newFileContent)
+                path.write_text(newFileContent)
                 # change save status
                 self.scriptEditorScript.updateSavedText()
 
             else:
-                with open(f"{self.loadedScript}/_name.json", "w") as currentFile:
-                    currentFile.write(name)
+                if self.loadedScript is not None:
+                    (self.loadedScript / "_name.json").write_text(name)
+
             if not rule:
                 self.selectedItem.setText(name)
 
-            if template and path.startswith(self.templateLocation):
+            if template and path.as_posix().startswith(
+                self.templateLocation.as_posix()
+            ):
                 self.scriptEditorTemplateMenu.initMenu()
 
     # - Rules mode
-    def toggleRulesMode(self, mode=True):
+    def toggleRulesMode(self, mode: bool = True):
         """
         Toggle rule mode on and off.
         """
@@ -782,7 +789,7 @@ class HotboxManager(QtWidgets.QWidget):
             [self.rulesFlagWidgets, self.scriptEditorNameWidgets][:: mode * 2 - 1]
         ):
             for widget in widgetList:
-                widget.setVisible(1 - index)
+                widget.setVisible(bool(1 - index))
 
         if mode:
             self.loadScriptEditor(rule=True)
@@ -795,7 +802,7 @@ class HotboxManager(QtWidgets.QWidget):
 
         enter = not self.exitTemplateModeButton.isVisible()
         # switch between template dropdown and 'Exit template mode' buttons.
-        self.scriptEditorTemplateButton.setVisible(1 - enter)
+        self.scriptEditorTemplateButton.setVisible(bool(1 - enter))
         self.exitTemplateModeButton.setVisible(enter)
 
         # store current selection
@@ -870,7 +877,7 @@ class HotboxManager(QtWidgets.QWidget):
 
         # write to zip
         with tarfile.open(archiveLocation, "w:gz") as tar:
-            tar.add(self.rootLocation, arcname=os.path.basename(self.rootLocation))
+            tar.add(self.rootLocation, arcname=self.rootLocation.name)
 
         # - file
         if not self.clipboardArchive.isChecked():
@@ -906,45 +913,35 @@ class HotboxManager(QtWidgets.QWidget):
             # save to clipboard
             QtWidgets.QApplication.clipboard().setText(encodedArchive)
 
-    def indexArchive(self, location, dict=False):
+    def indexArchive(self, location: Path, dict=False):
         fileList = {} if dict else []
-        for root, b, files in os.walk(location):
-            root = root.replace("\\", "/")
-            level = root.replace(location, "")
-
-            if "/_" not in level and "/." not in level:
+        for item in location.rglob("*"):
+            if item.name[0] != "_" and item.name[0] != ".":
                 newLevel = level
 
-                if "_name.json" in files:
-                    with open(f"{root}/_name.json", encoding="utf-8") as f:
-                        readName = f.read()
+                if item.name == "_name.json":
+                    readName = item.read_text(encoding="utf-8")
+
                     if "/" in readName:
                         readName = newLevel.replace("/", "**BACKSLASH**")
 
                     newLevel = "/".join(level.split("/")[:-1]) + "/" + readName
 
-                for file in files:
-                    if not file.startswith("."):
-                        newFile = file
-                        if len(file) == 6:
-                            with open(f"{root}/{file}", encoding="utf-8") as f:
-                                openFile = f.readlines()
+                if len(item.name) == 6:
+                    openfile = read_lines(item)
+                    nametag = "# name: "
 
-                            nameTag = "# NAME: "
+                    for line in openfile:
+                        if line.startswith(nametag):
+                            newfile = line.split(nametag)[-1].replace("\n", "")
 
-                            for line in openFile:
-                                if line.startswith(nameTag):
-                                    newFile = line.split(nameTag)[-1].replace("\n", "")
+                            if "/" in newfile:
+                                newfile = newfile.replace("/", "**backslash**")
 
-                                    if "/" in newFile:
-                                        newFile = newFile.replace("/", "**BACKSLASH**")
-
-                        if dict:
-                            fileList[f"{newLevel}/{newFile}"] = f"{level}/{file}"
-                        else:
-                            fileList.append(
-                                [f"{level}/{file}", f"{newLevel}/{newFile}"]
-                            )
+                if dict:
+                    filelist[f"{newlevel}/{newfile}"] = f"{level}/{file}"
+                else:
+                    filelist.append([f"{level}/{file}", f"{newlevel}/{newfile}"])
         return fileList
 
     # import
@@ -957,61 +954,55 @@ class HotboxManager(QtWidgets.QWidget):
         turned kinda messy...
         """
 
-        nukeFolder = os.getenv("HOME").replace("\\", "/") + "/.nuke/"
+        nukeFolder = Path.home() / ".nuke/"
         currentDate = dt.now().strftime("%Y%m%d%H%M")
 
-        archiveLocation = tempfile.mkstemp()[1]
+        archiveLocation = Path(tempfile.mkstemp()[1])
 
         # - file
         if self.clipboardArchive.isChecked():
             encodedArchive = QtWidgets.QApplication.clipboard().text()
             decodedArchive = base64.b64decode(encodedArchive)
 
-            with open(archiveLocation, "wb") as archive:
-                archive.write(decodedArchive)
+            _res = archiveLocation.write_bytes(decodedArchive)
 
         else:
             importFileLocation = nuke.getFilename("select to import", "*.hotbox")
             if importFileLocation is not None:
-                shutil.copy(importFileLocation, archiveLocation)
+                shutil.copy(importFileLocation, archiveLocation.as_posix())
             else:
                 return
 
         # - extract archive
-        importedArchiveLocation = tempfile.mkdtemp()
+        importedArchiveLocation = Path(tempfile.mkdtemp())
 
         # nuke 13
         if nuke.NUKE_VERSION_MAJOR > 12:
             self.extract_tar(archiveLocation, importedArchiveLocation)
         else:
-            with tarfile.open(archiveLocation) as archive:
+            with tarfile.open(archiveLocation.as_posix()) as archive:
+
                 def is_within_directory(directory, target):
-                    
                     abs_directory = os.path.abspath(directory)
                     abs_target = os.path.abspath(target)
-                
+
                     prefix = os.path.commonprefix([abs_directory, abs_target])
-                    
+
                     return prefix == abs_directory
-                
+
                 def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
-                
                     for member in tar.getmembers():
                         member_path = os.path.join(path, member.name)
                         if not is_within_directory(path, member_path):
                             raise Exception("Attempted Path Traversal in Tar File")
-                
-                    tar.extractall(path, members, numeric_owner=numeric_owner) 
-                    
-                
-                safe_extract(archive, importedArchiveLocation)
 
-        importedArchiveLocation += "/"
-        importedArchiveLocation = importedArchiveLocation.replace("\\", "/")
+                    tar.extractall(path, members, numeric_owner=numeric_owner)
+
+                safe_extract(archive, importedArchiveLocation.as_posix())
 
         # Make sure the current archive is healthy
         for i in ["Single", "Multiple", "All"]:
-            RepairHotbox(self.rootLocation + i, message=False)
+            RepairHotbox(self.rootLocation / i, message=False)
 
         # Copy stuff from extracted archive to current hotbox location
         importedArchive = self.indexArchive(importedArchiveLocation)
@@ -1019,13 +1010,13 @@ class HotboxManager(QtWidgets.QWidget):
 
         newItems = []
         for i in importedArchive:
-            if i[1] in currentArchive.keys():
+            if i.as_posix() in currentArchive.keys():
                 # if a file with the same name was found in the same folder, replace it with the new one
                 shutil.copy(
-                    importedArchiveLocation + i[0],
-                    self.rootLocation + currentArchive[i[1]],
+                    importedArchiveLocation / i,
+                    self.rootLocation / currentArchive[i[1]],
                 )
-            elif not i[0].endswith("/_name.json"):
+            elif not i.name == "_name.json":
                 newItems.append(i)
         newItems = [
             [i[0].replace("\\", "/"), i[1].replace("\\", "/")] for i in newItems
@@ -1033,9 +1024,9 @@ class HotboxManager(QtWidgets.QWidget):
 
         # gather information about which folders are already present on disk, and which should be created
         allFoldersNeeded = {
-            os.path.dirname(i[1])
-            .replace("\\", "/"): os.path.dirname(i[0])
-            .replace("\\", "/")
+            os.path.dirname(i[1]).replace("\\", "/"): os.path.dirname(i[0]).replace(
+                "\\", "/"
+            )
             for i in newItems
         }
         allFoldersNeededInverted = {allFoldersNeeded[i]: i for i in allFoldersNeeded}
@@ -1063,7 +1054,7 @@ class HotboxManager(QtWidgets.QWidget):
             splitFilePath = i[1].split("/")
 
             classFolders = "/".join(splitFilePath[:(prefixFolders)])
-            baseFolder = self.rootLocation + classFolders
+            baseFolder = self.rootLocation / classFolders
             baseFolder = baseFolder.replace("\\", "/")
 
             if not os.path.isdir(baseFolder):
@@ -2281,7 +2272,7 @@ class ScriptEditorTemplateMenu(QtWidgets.QMenu):
         # set default template folder
         folder = getHotBoxLocation()
 
-        self.templateFolder = f"{folder}Templates"
+        self.templateFolder = folder / "Templates"
 
         self.initMenu()
 
@@ -2298,7 +2289,7 @@ class ScriptEditorTemplateMenu(QtWidgets.QMenu):
         self.addQAction(self, "Save current script as template", self.saveAsTemplate)
         self.addQAction(self, "Manage templates", self.hotbox.toggleTemplateMode)
 
-    def addUserTemplates(self, folder, parent=None):
+    def addUserTemplates(self, folder: Path, parent=None):
         """
         Scan template folder and add an item for every template.
         """
@@ -2307,9 +2298,9 @@ class ScriptEditorTemplateMenu(QtWidgets.QMenu):
             parent = self
 
         for path in [
-            f"{folder}/{file}"
-            for file in os.listdir(folder)
-            if file[0] not in ["_", "."]
+            (folder / file)
+            for file in folder.iterdir()
+            if file.stem[0] not in ["_", "."]
         ]:
             name = getAttributeFromFile(path)
 
@@ -2317,7 +2308,7 @@ class ScriptEditorTemplateMenu(QtWidgets.QMenu):
             maxNameLength = 31
 
             # file
-            if os.path.isfile(path):
+            if path.is_file():
                 # trim name if to long
                 if len(name) > maxNameLength:
                     name = f"{name[:maxNameLength - 3]}..."
@@ -2424,7 +2415,7 @@ class ScriptEditorTemplateMenu(QtWidgets.QMenu):
 
 # - Tree View
 class QTreeViewCustom(QtWidgets.QTreeView):
-    def __init__(self, parentClass):
+    def __init__(self, parentClass: HotboxManager):
         super(QTreeViewCustom, self).__init__()
 
         self.enabled = False
@@ -2462,7 +2453,7 @@ class QTreeViewCustom(QtWidgets.QTreeView):
 
     # --------------------------------------------------------------------------------------------------
 
-    def setEnabled(self, mode=True):
+    def setEnabled(self, mode: bool = True):
         self.enabled = mode
 
         # change color
@@ -2481,7 +2472,7 @@ class QTreeViewCustom(QtWidgets.QTreeView):
 
         # find current scope
         if not self.parentClass.contextual:
-            self.scope = f"{self.parentClass.path}/"
+            self.scope: Path = self.parentClass.path
 
         else:
             classItems = self.parentClass.classesList.selectedItems()
@@ -2495,7 +2486,7 @@ class QTreeViewCustom(QtWidgets.QTreeView):
             if self.parentClass.mode == "Rules" and not int(classItem.checkState()):
                 classItemText += "_"
 
-            self.scope = f"{self.parentClass.path}/{classItemText}/"
+            self.scope = self.parentClass.path / classItemText
 
         self.update = self.previousScope == self.scope
         if self.update:
@@ -2540,31 +2531,23 @@ class QTreeViewCustom(QtWidgets.QTreeView):
         for _ in range(self.dataModel.rowCount()):
             self.dataModel.takeRow(0)
 
-    def addChild(self, parent, path):
+    def addChild(self, parent, path: Path):
         """
         Loop through folder structure and add items on the fly
         """
 
-        for i in sorted(os.listdir(path)):
-            if i[0] not in ["_", "."]:
-                if path[-1] != "/":
-                    path += "/"
-
-                filePath = path + i
-
-                name = getAttributeFromFile(filePath)
-
+        for i in sorted(path.iterdir()):
+            if i.name[0] not in ["_", "."]:
+                name = getAttributeFromFile(i)
                 if not name:
                     return
 
-                child = QStandardItemChild(name, filePath)
+                child = QStandardItemChild(name, str(i))
                 parent.appendRow(child)
 
-                # store in the list for easy access
-                self.buttonsList[filePath] = child
-
-                if os.path.isdir(filePath):
-                    self.addChild(child, filePath)
+                self.buttonsList[str(i)] = child
+                if i.is_dir():
+                    self.addChild(child, i)
 
     def setSelectedItems(self):
         """
@@ -2748,14 +2731,14 @@ class QTreeViewCustom(QtWidgets.QTreeView):
             # delete outdated path from dict
             del self.buttonsList[path]
 
-    def restoreSelection(self, path=""):
+    def restoreSelection(self, path: Optional[Path] = None):
         if not path:
             return
-        if not os.path.exists(path):
+        if not path.exists():
             return
 
         # restore selection
-        self.setCurrentIndex(self.buttonsList[path].index())
+        self.setCurrentIndex(self.buttonsList[path.as_posix()].index())
 
     def indexFolder(self, folder):
         """
@@ -2839,7 +2822,7 @@ class QTreeViewCustom(QtWidgets.QTreeView):
         selectedIndexes = self.selectedIndexes()
         if len(selectedIndexes) != 0:
             selectedItem = self.dataModel.itemFromIndex(selectedIndexes[0])
-            folderPath = f"{os.path.dirname(selectedItem.path)}/"
+            folderPath = Path(selectedItem.path).parent
 
         # make sure all the files inside the folder are named correctly
         RepairHotbox(folder=folderPath, recursive=False, message=False)
@@ -2849,17 +2832,15 @@ class QTreeViewCustom(QtWidgets.QTreeView):
 
         if not folder:
             itemName = "New Item"
-            itemPath += ".py"
+            itemPath = itemPath.with_suffix(".py")
 
             newFileContent = FileHeader(itemName).getHeader()
-            currentFile = open(itemPath, "w")
-            currentFile.write(newFileContent)
+            itemPath.write_text(newFileContent)
         else:
             itemName = "New Menu"
 
-            os.mkdir(itemPath)
-            with open(f"{itemPath}/_name.json", "w", encoding="utf-8") as f:
-                f.write(itemName)
+            itemPath.mkdir()
+            (itemPath / "_name.json").write_text(itemName, encoding="utf-8")
 
         self.populateTree()
 
@@ -2879,23 +2860,23 @@ class QTreeViewCustom(QtWidgets.QTreeView):
 
         nextItemPath = nextItem.path if nextItem is not None else None
         # - remove selected file
-        oldFolder = f"{self.scope}_old/"
+        oldFolder = self.scope / "_old"
 
-        if not os.path.isdir(oldFolder):
-            os.mkdir(oldFolder)
+        if not oldFolder.exists():
+            oldFolder.mkdir()
 
         currentTime = dt.now().strftime("%Y%m%d%H%M%S")
         newFileName = currentTime
 
         counter = 1
-        while newFileName in sorted(os.listdir(oldFolder)):
+        while newFileName in sorted(oldFolder.iterdir()):
             newFileName = f"{currentTime}_{str(counter).zfill(3)}"
             counter += 1
 
-        shutil.move(currentItem.path, oldFolder + newFileName)
+        shutil.move(currentItem.path, oldFolder / newFileName)
 
         # - make sure all the files inside the folder are named correctly
-        changedFolder = os.path.dirname(currentItem.path)
+        changedFolder = Path(currentItem.path).parent
         RepairHotbox(folder=changedFolder, recursive=False, message=False)
 
         self.populateTree()
@@ -2907,7 +2888,7 @@ class QTreeViewCustom(QtWidgets.QTreeView):
         Place the selected items in the class' clipboard
         """
         with contextlib.suppress(Exception):
-            self.clipboard = list(self.selectedItemsPaths)
+            self.clipboard = list([Path(x) for x in self.selectedItemsPaths])
 
     def pasteItem(self):
         """
@@ -2921,11 +2902,7 @@ class QTreeViewCustom(QtWidgets.QTreeView):
 
         for path in self.clipboard:
             fileList = sorted(
-                [
-                    i[:3]
-                    for i in os.listdir(os.path.dirname(path))
-                    if i[0] not in [".", "_"]
-                ]
+                [i.stem for i in path.parent.iterdir() if i.name[0] not in [".", "_"]]
             )
 
             newFileName = "001"
@@ -2935,11 +2912,11 @@ class QTreeViewCustom(QtWidgets.QTreeView):
                 counter += 1
                 newFileName = str(counter).zfill(3)
 
-            newPath = self.scope + newFileName
+            newPath = self.scope / newFileName
 
             # - if file
-            if path.endswith(".py"):
-                newPath += ".py"
+            if path.name.endswith(".py"):
+                newPath = newPath.with_suffix(".py")
                 shutil.copy2(path, newPath)
 
             # - if menu
@@ -3099,7 +3076,8 @@ class RenameDialog(QtWidgets.QDialog):
 
         self.new = new
 
-        self.hotboxManager = hotboxManagerInstance
+        constants = Constants()
+        self.hotboxManager = constants.hotboxManagerInstance
 
         # list of all items currently in list
         self.allItems = self.hotboxManager.classesList.allItemNames()
@@ -3361,7 +3339,14 @@ class QWebLink(QtWidgets.QLabel):
 
 # - Top portion of the files that will be generated
 class FileHeader:
-    def __init__(self, name, color=None, textColor=None, rule=False):
+    def __init__(
+        self,
+        name: str,
+        color: Optional[str] = None,
+        textColor: Optional[str] = None,
+        rule: bool = False,
+    ):
+        super().__init__()
         dividerLine = "-" * 106
 
         text = [
@@ -3391,36 +3376,41 @@ class FileHeader:
 
 # - Repair
 class RepairHotbox:
-    def __init__(self, folder=None, recursive=True, message=True):
+    def __init__(
+        self,
+        folder: Optional[Path] = None,
+        recursive: bool = True,
+        message: bool = True,
+    ):
+        super().__init__()
         # set root folder
         self.root = getHotBoxLocation() if folder is None else folder
         # make sure the root ends with '/'
-        while self.root[-1] != "/":
-            self.root += "/"
 
         # compose list of folders
-        self.dirList = [f"{self.root}All/"] if folder is None else []
+        self.dir_list = [self.root / "All"] if folder is None else []
+
         if recursive:
-            self.indexFolders(self.root, folder)
+            self.index_folders(self.root, folder)
         else:
-            self.dirList = [self.root]
+            self.dir_list = [self.root]
 
         # append every filename with a 'tmp' so no files will be overwritten.
-        for i in self.dirList:
+        for i in self.dir_list:
             self.tempifyFolder(i)
 
         # reset dirlist
-        self.dirList = [f"{self.root}All/"] if folder is None else []
+        self.dir_list = [self.root / "All"] if folder is None else []
         if recursive:
-            self.indexFolders(self.root, folder)
+            self.index_folders(self.root, folder)
         else:
-            self.dirList = [self.root]
+            self.dir_list = [self.root]
 
         # give every file its proper name
 
-        repairProgress = 100.0 / max(1.0, len(self.dirList))
+        repairProgress = 100.0 / max(1.0, len(self.dir_list))
 
-        for index, i in enumerate(self.dirList):
+        for index, i in enumerate(self.dir_list):
             if message:
                 repairProgressBar = nuke.ProgressTask("Repairing ..")
 
@@ -3432,42 +3422,45 @@ class RepairHotbox:
         if message:
             nuke.message("Succesfully repaired")
 
-    def indexFolders(self, path, folder):
-        while path[-1] != "/":
-            path += "/"
+    def index_folders(self, path: Path, folder: Optional[Path] = None):
+        # level = len([i for i in path.replace(self.root, "").split("/") if len(i) > 0])
+        level = len([i for i in path.relative_to(self.root).parts if i])
 
-        level = len([i for i in path.replace(self.root, "").split("/") if len(i) > 0])
+        for child in path.iterdir():
+            if child.name[0] not in [".", "_"]:  # Exclude hidden directories
+                if child.is_dir():
+                    if level != 0 or folder is not None:
+                        self.dir_list.insert(0, child)
+                    self.index_folders(child, folder)
 
-        for i in [path + i + "/" for i in os.listdir(path) if i[0] not in [".", "_"]]:
-            if os.path.isdir(i):
-                if level != 0 or folder != None:
-                    self.dirList.insert(0, i)
-                self.indexFolders(i, folder)
+        # for i in [path + i + "/" for i in os.listdir(path) if i[0] not in [".", "_"]]:
+        #     if os.path.isdir(i):
+        #         if level != 0 or folder != None:
+        #             self.dir_list.insert(0, i)
+        #         self.index_folders(i, folder)
 
-    def tempifyFolder(self, folderPath):
-        folderContent = [
-            folderPath + i for i in os.listdir(folderPath) if i[0] not in [".", "_"]
+    def tempifyFolder(self, folderPath: Path):
+        folderContent = [i for i in folderPath.iterdir() if i.name[0] not in [".", "_"]]
+        for item in sorted(folderContent):
+            _ = item.rename(item.with_suffix(".tmp"))
+
+    def repairFolder(self, folder_path: Path):
+        folder_content = [
+            i for i in folder_path.iterdir() if i.name[0] not in [".", "_"]
         ]
-        for i in sorted(folderContent):
-            os.rename(i, f"{i}.tmp")
 
-    def repairFolder(self, folderPath):
-        folderContent = [
-            folderPath + i for i in os.listdir(folderPath) if i[0] not in [".", "_"]
-        ]
-
-        for index, oldFile in enumerate(sorted(folderContent)):
+        for index, old_file in enumerate(sorted(folder_content)):
             extension = ""
 
-            if os.path.isfile(oldFile):
+            if old_file.is_file():
                 extension = ".py"
 
-            newFile = folderPath + str(index + 1).zfill(3) + extension
+            new_file = folder_path / f"{str(index + 1).zfill(3)}{extension}"
 
-            os.rename(oldFile, newFile)
+            _ = old_file.rename(new_file)
 
 
-def clearHotboxManager(sections=None):
+def clearHotboxManager(sections: Optional[list[str]] = None):
     """
     Clear the buttons of the section specified. By default all buttons will be erased.
     """
@@ -3511,62 +3504,9 @@ def clearHotboxManager(sections=None):
             os.mkdir(hotboxLocation + i)
 
 
-# - Commenly used functions
-def getAttributeFromFile(path, attribute="name"):
-    """
-    Scan file for the appropriate attribute.
-    By default attribute is name. If no attribute found, return None
-    """
-
-    if os.path.isfile(path):
-        tag = f"# {attribute.upper()}: "
-        for line in open(path):
-            if not line.startswith("#"):
-                break
-
-            if line.startswith(tag):
-                return line.split(tag)[-1].replace("\n", "")
-    elif attribute == "name":
-        nameFile = f"{path}/_name.json"
-        if os.path.isfile(nameFile):
-            with open(nameFile, encoding="utf-8") as f:
-                return f.read()
-
-    return None
-
-
-def getScriptFromFile(path):
-    """
-    Extract the appropriate fucntion from the file. If no name found, return None
-    """
-    if os.path.isfile(path):
-        with open(path, encoding="utf-8") as f:
-            openFile = f.readlines()
-
-        for index, line in enumerate(openFile):
-            if not line.startswith("#"):
-                return "".join(openFile[index + 1 :]).replace("\t", " " * 4)
-    return None
-
-
-def getFirstAvailableFilePath(folder):
-    """
-    loop over content of folder to find an appropriate name for the new item
-    """
-
-    newFileName = "001"
-
-    while newFileName in [
-        i[:3] for i in sorted(os.listdir(folder)) if i[0] not in [".", "_"]
-    ]:
-        newFileName = str(int(newFileName) + 1).zfill(3)
-
-    return folder + newFileName
-
-
-hotboxManagerInstance = None
-renameDialogInstance = None
-aboutDialogInstance = None
+# hotboxManagerInstance = None
+# renameDialogInstance = None
+# aboutDialogInstance = None
 
 
 def showHotboxManager(path=""):
