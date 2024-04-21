@@ -411,6 +411,7 @@ class NodeButtons(QtWidgets.QVBoxLayout):
                     for file in sorted(folder.iterdir())
                     if file.name[0] not in [".", "_"] and len(file.name) in {3, 6}
                 )
+
         row = []
 
         allRows = []
@@ -937,81 +938,87 @@ def resetMenuItems():
 
 
 # - Globals
-
-# add knobs to preferences
-updatePreferences()
-addPreferences()
-
-# make sure the archive folders are present, if not, create them
-hotboxLocationPathKnob = preferencesNode.knob("hotboxLocation")
-hotboxLocationPath = getHotBoxLocation()
-
-if not hotboxLocationPath:
-    hotboxLocationPath = homeFolder / "W_hotbox"
-    hotboxLocationPathKnob.setValue(hotboxLocationPath.as_posix())
-
-# if hotboxLocationPath[-1] != "/":
-# hotboxLocationPath += "/"
-
-for subFolder in [
-    "",
-    "Single",
-    "Multiple",
-    "All",
-    "Rules",
-    "Single/No Selection",
-    "Templates",
-]:
-    subFolderPath = hotboxLocationPath / subFolder
-    if not subFolderPath.exists():
-        with contextlib.suppress(Exception):
-            subFolderPath.mkdir()
-
-
-# menu items
-editMenu = nuke.menu("Nuke").findItem("Edit")
-editMenu.addCommand("-", "", "")
-addMenuItems()
-
-# EXTRA REPOSTITORIES
-"""
-Add them like this:
-
-W_HOTBOX_REPO_PATHS=/path1:/path2:/path3
-W_HOTBOX_REPO_NAMES=name1:name2:name3
-
-"""
-
+hotboxLocationPathKnob = None
+hotboxLocationPath = None
 extraRepositories = []
-
-if "W_HOTBOX_REPO_PATHS" in os.environ and "W_HOTBOX_REPO_NAMES" in os.environ:
-    extraRepositoriesPaths = os.environ["W_HOTBOX_REPO_PATHS"].split(os.pathsep)
-    extraRepositoriesNames = os.environ["W_HOTBOX_REPO_NAMES"].split(os.pathsep)
-
-    for index, i in enumerate(
-        range(min(len(extraRepositoriesPaths), len(extraRepositoriesNames)))
-    ):
-        path = Path(extraRepositoriesPaths[index])
-
-        # make sure last character is a '/'
-        # if path[-1] != "/":
-        # path += "/"
-
-        name = extraRepositoriesNames[index]
-        if name not in [i[0] for i in extraRepositories] and path not in [
-            i[1] for i in extraRepositories
-        ]:
-            extraRepositories.append([name, path])
-
-    if extraRepositories:
-        editMenu.addCommand("W_hotbox/-", "", "")
-        for repo in extraRepositories:
-            editMenu.addCommand(
-                f"W_hotbox/Special/Open Hotbox Manager - {repo[0]}",
-                f'W_hotboxManager.showHotboxManager(path="{repo[1].as_posix()}")',
-            )
+editMenu = None
 
 
-nuke.tprint(
-    f"W_hotbox v{version}, built {releaseDate}.\nCopyright (c) 2016-{releaseDate.split()[-1]} Wouter Gilsing. All Rights Reserved."
-)
+def register():
+    global hotboxLocationPath, hotboxLocationPathKnob, extraRepositories, editMenu
+
+    # add knobs to preferences
+    updatePreferences()
+    addPreferences()
+
+    # make sure the archive folders are present, if not, create them
+    hotboxLocationPathKnob = preferencesNode.knob("hotboxLocation")
+    hotboxLocationPath = getHotBoxLocation()
+
+    if not hotboxLocationPath:
+        hotboxLocationPath = homeFolder / "W_hotbox"
+        hotboxLocationPathKnob.setValue(hotboxLocationPath.as_posix())
+
+    # if hotboxLocationPath[-1] != "/":
+    # hotboxLocationPath += "/"
+
+    for subFolder in [
+        "",
+        "Single",
+        "Multiple",
+        "All",
+        "Rules",
+        "Single/No Selection",
+        "Templates",
+    ]:
+        subFolderPath = hotboxLocationPath / subFolder
+        if not subFolderPath.exists():
+            with contextlib.suppress(Exception):
+                subFolderPath.mkdir()
+
+    # menu items
+    editMenu = nuke.menu("Nuke").findItem("Edit")
+    editMenu.addCommand("-", "", "")
+    addMenuItems()
+
+    # EXTRA REPOSTITORIES
+    """
+    Add them like this:
+
+    W_HOTBOX_REPO_PATHS=/path1:/path2:/path3
+    W_HOTBOX_REPO_NAMES=name1:name2:name3
+
+    """
+
+    extraRepositories = []
+
+    if "W_HOTBOX_REPO_PATHS" in os.environ and "W_HOTBOX_REPO_NAMES" in os.environ:
+        extraRepositoriesPaths = os.environ["W_HOTBOX_REPO_PATHS"].split(os.pathsep)
+        extraRepositoriesNames = os.environ["W_HOTBOX_REPO_NAMES"].split(os.pathsep)
+
+        for index, i in enumerate(
+            range(min(len(extraRepositoriesPaths), len(extraRepositoriesNames)))
+        ):
+            path = Path(extraRepositoriesPaths[index])
+
+            # make sure last character is a '/'
+            # if path[-1] != "/":
+            # path += "/"
+
+            name = extraRepositoriesNames[index]
+            if name not in [i[0] for i in extraRepositories] and path not in [
+                i[1] for i in extraRepositories
+            ]:
+                extraRepositories.append([name, path])
+
+        if extraRepositories:
+            editMenu.addCommand("W_hotbox/-", "", "")
+            for repo in extraRepositories:
+                editMenu.addCommand(
+                    f"W_hotbox/Special/Open Hotbox Manager - {repo[0]}",
+                    f'W_hotboxManager.showHotboxManager(path="{repo[1].as_posix()}")',
+                )
+
+    nuke.tprint(
+        f"W_hotbox v{version}, built {releaseDate}.\nCopyright (c) 2016-{releaseDate.split()[-1]} Wouter Gilsing. All Rights Reserved."
+    )
