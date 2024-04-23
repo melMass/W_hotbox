@@ -1,6 +1,13 @@
-import W_hotbox
-import W_hotboxManager
+import sys
+from pathlib import Path
 
-W_hotbox.register()
+here = Path(__file__).parent
+lib = here / "python"
+sys.path.append(lib.as_posix())
 
-__all__ = ["W_hotbox", "W_hotboxManager"]
+from W_hotbox_lib import hotbox
+from W_hotbox_lib import manager as W_hotboxManager
+
+hotbox.register()
+
+__all__ = ["hotbox", "W_hotboxManager"]

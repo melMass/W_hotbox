@@ -1,11 +1,15 @@
 from pathlib import Path
+from typing import Optional
 
 # - modules
 import nuke
 
-from W_hotbox_utils import (
+from W_hotbox_lib import manager
+
+from .utils import (
     log,
     Constants,
+    read_name,
     getFileBrowser,
     getHotBoxLocation,
     getSelectionColor,
@@ -20,6 +24,7 @@ from W_hotbox_utils import (
     rgb2hex,
     updatePreferences,
     version,
+    addPreferences,
 )
 
 import colorsys
@@ -27,9 +32,7 @@ import contextlib
 import os
 import traceback
 
-import W_hotboxManager
 from PySide2 import QtCore, QtGui, QtWidgets
-from W_hotbox_utils import addPreferences
 
 
 class Hotbox(QtWidgets.QWidget):
@@ -546,9 +549,7 @@ class HotboxCenter(QtWidgets.QLabel):
                 name = "Selection"
 
         else:
-            with open(f"{name}/_name.json", encoding="utf-8") as nameFile:
-                name = nameFile.read()
-
+            name = read_name(Path(name) / "_name.json")
             nodeColor = getSelectionColor()
 
             width = 105
@@ -612,7 +613,7 @@ class HotboxButton(QtWidgets.QLabel):
     Button class
     """
 
-    def __init__(self, name, function=None):
+    def __init__(self, name: str, function: Optional[str] = None):
         super(HotboxButton, self).__init__()
 
         self.menuButton = False
@@ -634,7 +635,7 @@ class HotboxButton(QtWidgets.QLabel):
 
         elif Path(self.filePath).is_dir():
             self.menuButton = True
-            name = (Path(self.filePath) / "_name.json").read_text(encoding="utf-8")
+            name = read_name(Path(self.filePath) / "_name.json")
             self.function = f'showHotboxSubMenu(r"{self.filePath}","{name}")'
             self.bgColor = "#333333"
 
@@ -869,7 +870,7 @@ def showHotbox(force=False, resetPosition=True):
         constants.hotboxInstance.show()
 
 
-def showHotboxSubMenu(path, name):
+def showHotboxSubMenu(path: str, name: str):
     constants = Constants()
     constants.hotboxInstance.active = False
     if constants.hotboxInstance is None or not constants.hotboxInstance.active:
@@ -884,7 +885,7 @@ def showHotboxManager():
     constants = Constants()
 
     constants.hotboxInstance.closeHotbox()
-    W_hotboxManager.showHotboxManager()
+    manager.showHotboxManager()
 
 
 # - menu items
@@ -945,6 +946,7 @@ editMenu = None
 
 
 def register():
+    """Registers the hotbox addon"""
     global hotboxLocationPath, hotboxLocationPathKnob, extraRepositories, editMenu
 
     # add knobs to preferences

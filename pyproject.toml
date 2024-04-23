@@ -1,0 +1,30 @@
+[project]
+name = "W_hotbox"
+dynamic = ["version"]
+readme = "README.md"
+
+[project.optional-dependencies]
+gui = ["PySide2"]
+cli = ["rich"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pyright]
+exclude = [
+  "**/node_modules",
+  "**/__pycache__",
+  "src/experimental",
+  "src/typestubs",
+]
+ignore = ["src/oldstuff"]
+defineConstant = { DEBUG = true }
+extraPaths = ["python"]
+stubPath = "src/stubs"
+
+reportMissingImports = true
+reportMissingTypeStubs = false
+
+pythonVersion = "3.9"
+pythonPlatform = "Windows"

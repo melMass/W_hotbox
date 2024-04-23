@@ -5,6 +5,7 @@ import os
 import platform
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 import nuke
 
@@ -20,6 +21,32 @@ releaseDate = "March 28 2021"
 preferencesNode = nuke.toNode("preferences")
 operatingSystem = platform.system()
 homeFolder = Path.home() / ".nuke"
+
+
+def read_name(name_file: Path) -> Optional[str]:
+    if name_file.is_file():
+        read_name = name_file.read_text(encoding="utf-8")
+        return read_name.strip()
+    return None
+
+
+def update_level_with_name(level: Path, name: str):
+    if "/" in name:
+        return level.with_name(name)
+    return level.parent / name
+
+
+def process_file_name(file: Path) -> Path:
+    new_file = file
+    if len(file.name) == 6:
+        with file.open() as f:
+            for line in f:
+                if line.startswith("# NAME: "):
+                    new_file = Path(line.split("# NAME: ")[-1].rstrip("\n"))
+                    new_file = new_file.with_name(
+                        new_file.name.replace("/", "**BACKSLASH**")
+                    )
+    return new_file
 
 
 # - mutable constant singleton
@@ -612,9 +639,7 @@ def getAttributeFromFile(path: Path, attribute: str = "name"):
             if line.startswith(tag):
                 return line.split(tag)[-1].replace("\n", "")
     elif attribute == "name":
-        nameFile = path / "_name.json"
-        if nameFile.is_file():
-            return nameFile.read_text(encoding="utf-8")
+        return read_name(path / "_name.json")
 
     return None
 
