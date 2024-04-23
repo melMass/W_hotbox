@@ -4,7 +4,7 @@ from typing import Optional
 # - modules
 import nuke
 
-from W_hotbox_lib import manager
+from . import manager
 
 from .utils import (
     log,

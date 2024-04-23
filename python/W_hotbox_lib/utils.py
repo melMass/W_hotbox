@@ -478,7 +478,7 @@ def addPrefBoolKnob(arg0, arg1, arg2, arg3):
 # region colors
 
 
-def interface2rgb(hexValue, normalize=True):
+def interface2rgb(hexValue: int, normalize: bool = True) -> list[int]:
     """
     Convert a color stored as a 32 bit value as used by nuke for interface colors to normalized rgb values.
 
@@ -486,7 +486,7 @@ def interface2rgb(hexValue, normalize=True):
     return [(0xFF & hexValue >> i) / 255.0 for i in [24, 16, 8]]
 
 
-def rgb2hex(rgbaValues):
+def rgb2hex(rgbaValues: list[int]):
     """
     Convert a color stored as normalized rgb values to a hex.
     """
@@ -499,7 +499,7 @@ def rgb2hex(rgbaValues):
     return "#%02x%02x%02x" % (rgbaValues[0], rgbaValues[1], rgbaValues[2])
 
 
-def hex2rgb(hexColor):
+def hex2rgb(hexColor: str):
     """
     Convert a color stored as hex to rgb values.
     """
@@ -508,7 +508,7 @@ def hex2rgb(hexColor):
     return tuple(int(hexColor[i : i + 2], 16) for i in (0, 2, 4))
 
 
-def rgb2interface(rgb):
+def rgb2interface(rgb: list[int]):
     """
     Convert a color stored as rgb values to a 32 bit value as used by nuke for interface colors.
     """
@@ -518,7 +518,7 @@ def rgb2interface(rgb):
     return int("%02x%02x%02x%02x" % rgb, 16)
 
 
-def getTileColor(node=None):
+def getTileColor(node: Optional[nuke.Node] = None):
     """
     If a node has it's color set automatically, the 'tile_color' knob will return 0.
     If so, this function will scan through the preferences to find the correct color value.
@@ -552,11 +552,13 @@ def getSelectionColor():
 
 
 # region OS
-def getHotBoxLocation(path=None) -> Path:
+
+
+def getHotBoxLocation(path: Optional[str] = None) -> Path:
     """
     Returns the location of the hotbox.
     """
-    folder = ""
+    # folder = ""
     folder = path or preferencesNode.knob("hotboxLocation").value()
     # if folder[-1] != "/":
     # folder += "/"
