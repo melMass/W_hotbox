@@ -21,7 +21,6 @@ auto_identify_namespace_packages = false
 extend_skip = ["archives"]
 combine_straight_imports = true
 
-
 [tool.pyright]
 exclude = [
   "**/node_modules",
@@ -36,6 +35,7 @@ stubPath = "src/stubs"
 
 reportMissingImports = true
 reportMissingTypeStubs = false
+typeCheckingMode = "basic"
 
 pythonVersion = "3.9"
 pythonPlatform = "Windows"

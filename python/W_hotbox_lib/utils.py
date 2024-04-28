@@ -1,11 +1,10 @@
-#!/usr/bin/env python3
-# -*- coding:utf-8 -*-
+from __future__ import annotations
 import contextlib
 import os
 import platform
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import nuke
 
@@ -13,12 +12,20 @@ import nuke
 
 from mtb.core import mklog
 
+
+def get_preference_node():
+    pref = nuke.toNode("preferences")
+    if not pref:
+        raise LookupError("Could not find the preference node, this shouldn't happen")
+    return pref
+
+
 log = mklog("W_hotbox")
 
 # - true constants
 version = "1.9"
 releaseDate = "March 28 2021"
-preferencesNode = nuke.toNode("preferences")
+preferencesNode = get_preference_node()
 operatingSystem = platform.system()
 homeFolder = Path.home() / ".nuke"
 
@@ -49,9 +56,19 @@ def process_file_name(file: Path) -> Path:
     return new_file
 
 
+if TYPE_CHECKING:
+    from .hotbox import Hotbox
+    from .manager import HotboxManager
+    from .widgets import AboutDialog
+
+
 # - mutable constant singleton
 class Constants:
-    _instance = None
+    _instance: Optional[Constants] = None
+
+    hotboxInstance: Optional[Hotbox] = None
+    hotboxManagerInstance: Optional[HotboxManager] = None
+    aboutDialogInstant: Optional[AboutDialog] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -77,7 +94,7 @@ class Constants:
 # region preferences
 
 
-def addToPreferences(knobObject, tooltip=None):
+def addToPreferences(knobObject: nuke.Knob, tooltip: Optional[str] = None):
     """
     Add a knob to the preference panel.
     Save current preferences to the prefencesfile in the .nuke folder.
@@ -103,7 +120,7 @@ def savePreferencesToFile():
         f"{nukeFolder}preferences{nuke.NUKE_VERSION_MAJOR}.{nuke.NUKE_VERSION_MINOR}.nk"
     )
 
-    preferencesNode = nuke.toNode("preferences")
+    preferencesNode = get_preference_node()
 
     customPrefences = preferencesNode.writeKnobs(
         nuke.WRITE_USER_KNOB_DEFS
@@ -118,7 +135,7 @@ def savePreferencesToFile():
     )
     # write to file
     with open(preferencesFile, "wb") as f:
-        f.write(preferencesCode.encode("utf-8"))
+        _ = f.write(preferencesCode.encode("utf-8"))
 
 
 def deletePreferences():
@@ -129,12 +146,15 @@ def deletePreferences():
     firstLaunch = True
     for i in preferencesNode.knobs().keys():
         if "hotbox" in i:
-            preferencesNode.removeKnob(preferencesNode.knob(i))
+            knob = preferencesNode.knob(i)
+            if knob:
+                preferencesNode.removeKnob(knob)
             firstLaunch = False
 
     # remove TabKnob
-    with contextlib.suppress(Exception):
-        preferencesNode.removeKnob(preferencesNode.knob("hotboxLabel"))
+    label = preferencesNode.knob("hotboxLabel")
+    if label:
+        preferencesNode.removeKnob(label)
 
     if not firstLaunch:
         savePreferencesToFile()
@@ -173,6 +193,7 @@ def updatePreferences():
     elif forceUpdate:
         if proceedUpdate:
             resetPreferences(allKnobs)
+
     # nuke 12.2v4 and 13 bug. The last tab wont be shown. Workaround is to add an extra tab
     customTabs = [
         k.name()
@@ -184,10 +205,10 @@ def updatePreferences():
         dummyTab = nuke.Tab_Knob("hotboxDummyTab", "Dummy")
         dummyTab.setFlag(0x00040000)
 
-        addToPreferences(dummyTab)
+        _ = addToPreferences(dummyTab)
 
 
-def resetPreferences(allKnobs):
+def resetPreferences(allKnobs: list[str]):
     currentSettings = {
         knob: preferencesNode.knob(knob).value()
         for knob in allKnobs
@@ -203,7 +224,7 @@ def resetPreferences(allKnobs):
     # restore
     for knob, value in currentSettings.items():
         with contextlib.suppress(Exception):
-            preferencesNode.knob(knob).setValue(value)
+            _ = preferencesNode.knob(knob).setValue(value)
 
     # save to file
     savePreferencesToFile()
@@ -223,10 +244,10 @@ def resetPreferences(allKnobs):
 #     return True
 
 
-def addPrefKnob(knob, tooltip, new_line=False):
+def addPrefKnob(knob: nuke.Knob, tooltip: str, new_line: bool = False):
     if new_line:
         knob.clearFlag(nuke.STARTLINE)
-    addToPreferences(knob, tooltip)
+    _ = addToPreferences(knob, tooltip)
 
     return tooltip
 
@@ -237,19 +258,19 @@ def addPreferences():
     """
     constants = Constants()
 
-    addToPreferences(nuke.Tab_Knob("hotboxLabel", "W_hotbox"))
-    addToPreferences(nuke.Text_Knob("hotboxGeneralLabel", "<b>General</b>"))
+    _ = addToPreferences(nuke.Tab_Knob("hotboxLabel", "W_hotbox"))
+    _ = addToPreferences(nuke.Text_Knob("hotboxGeneralLabel", "<b>General</b>"))
 
     # - version knob to check whether the hotbox was updated
     knob = nuke.String_Knob("hotboxVersion", "version")
     knob.setValue(version)
-    addToPreferences(knob)
+    _ = addToPreferences(knob)
     preferencesNode.knob("hotboxVersion").setVisible(False)
 
     # - location knob
     knob = nuke.File_Knob("hotboxLocation", "Hotbox location")
 
-    addPrefKnob(
+    _ = addPrefKnob(
         knob,
         "The folder on disk the Hotbox uses to store the Hotbox buttons. Make sure this path links to the folder containing the 'All','Single' and 'Multiple' folders.",
     )
@@ -258,7 +279,7 @@ def addPreferences():
     knob = nuke.File_Knob("hotboxIconLocation", "Icons location")
     knob.setValue((homeFolder / "icons" / "W_hotbox").as_posix())
 
-    addPrefKnob(
+    _ = addPrefKnob(
         knob,
         "The folder on disk the where the Hotbox related icons are stored. Make sure this path links to the folder containing the PNG files.",
     )
@@ -269,13 +290,13 @@ def addPreferences():
         "open hotbox manager",
         "W_hotboxManager.showHotboxManager()",
     )
-    addPrefKnob(knob, "Open the Hotbox Manager.", True)
+    _ = addPrefKnob(knob, "Open the Hotbox Manager.", True)
 
     # - open in file system button knob
     knob = nuke.PyScript_Knob(
         "hotboxOpenFolder", "open hotbox folder", "W_hotbox_utils.revealInBrowser(True)"
     )
-    addPrefKnob(
+    _ = addPrefKnob(
         knob, "Open the folder containing the files that store the Hotbox buttons."
     )
 
@@ -286,19 +307,19 @@ def addPreferences():
         "W_hotbox_utils.deletePreferences()",
     )
 
-    addPrefKnob(
+    _ = addPrefKnob(
         knob,
         "Delete all the Hotbox related knobs from the Preferences Panel. After clicking this button the Preferences Panel should be closed by clicking the 'cancel' button.",
     )
 
     # Launch Label knob
-    addToPreferences(nuke.Text_Knob("hotboxLaunchLabel", "<b>Launch</b>"))
+    _ = addToPreferences(nuke.Text_Knob("hotboxLaunchLabel", "<b>Launch</b>"))
 
     # shortcut knob
     knob = nuke.String_Knob("hotboxShortcut", "Shortcut")
     knob.setValue("`")
 
-    addPrefKnob(
+    _ = addPrefKnob(
         knob,
         "The key that triggers the Hotbox. Should be set to a single key without any modifier keys. "
         "Spacebar can be defined as 'space'. Nuke needs be restarted in order for the changes to take effect.",
@@ -308,13 +329,13 @@ def addPreferences():
 
     # reset shortcut knob
     knob = nuke.PyScript_Knob("hotboxResetShortcut", "set", "W_hotbox.resetMenuItems()")
-    addPrefKnob(knob, "Apply new shortcut.", True)
+    _ = addPrefKnob(knob, "Apply new shortcut.", True)
     # trigger mode knob
     knob = nuke.Enumeration_Knob(
         "hotboxTriggerDropdown", "Launch mode", ["Press and Hold", "Single Tap"]
     )
 
-    addPrefKnob(
+    _ = addPrefKnob(
         knob,
         "The way the hotbox is launched. When set to 'Press and Hold' the Hotbox will appear whenever the shortcut is pressed and disappear as soon as the user releases the key. "
         "When set to 'Single Tap' the shortcut will toggle the Hotbox on and off.",
@@ -336,7 +357,7 @@ def addPreferences():
     knob = nuke.Enumeration_Knob(
         "hotboxRuleClassOrder", "Order", ["Class - Rule", "Rule - Class"]
     )
-    addPrefKnob(knob, "The order in which the buttons will be loaded.")
+    _ = addPrefKnob(knob, "The order in which the buttons will be loaded.")
 
     # Manager startup default
     knob = nuke.Enumeration_Knob(
@@ -344,7 +365,7 @@ def addPreferences():
         "Manager startup default",
         ["Contextual", "All", "Rules", "Contextual/All", "Contextual/Rules"],
     )
-    tooltip = addPrefKnob(
+    _tooltip = addPrefKnob(
         knob,
         "The section of the Manager that will be opened on startup.\n"
         "\n<b>Contextual</b> Open the 'Single' or 'Multiple' section, depending on selection."
@@ -355,12 +376,12 @@ def addPreferences():
         True,
     )
     # Appearence knob
-    addToPreferences(nuke.Text_Knob("hotboxAppearanceLabel", "<b>Appearance</b>"))
+    _ = addToPreferences(nuke.Text_Knob("hotboxAppearanceLabel", "<b>Appearance</b>"))
 
     # color dropdown knob
     knob = nuke.Boolean_Knob("hotboxMirroredLayout", "Mirrored")
 
-    addPrefKnob(
+    _ = addPrefKnob(
         knob,
         "By default the contextual buttons will appear at the top of the hotbox and the non contextual buttons at the bottom.",
     )
@@ -370,7 +391,7 @@ def addPreferences():
         "hotboxColorDropdown", "Color scheme", ["Maya", "Nuke", "Custom"]
     )
 
-    addPrefKnob(
+    _ = addPrefKnob(
         knob,
         "The color of the buttons when selected.\n"
         "\n<b>Maya</b> Autodesk Maya's muted blue."
@@ -380,7 +401,7 @@ def addPreferences():
 
     # custom color knob
     knob = nuke.ColorChip_Knob("hotboxColorCustom", "")
-    addPrefKnob(
+    _ = addPrefKnob(
         knob,
         "The color of the buttons when selected, when the color dropdown is set to 'Custom'.",
         True,
@@ -406,7 +427,7 @@ def addPreferences():
     # fontsize manager's script editor knob
     knob = nuke.Int_Knob("hotboxScriptEditorFontSize", "Font size script editor")
     knob.setValue(11)
-    addPrefKnob(
+    _ = addPrefKnob(
         knob,
         "The font size of the text that appears in the hotbox manager's script editor.",
         True,
@@ -439,7 +460,7 @@ def addPreferences():
     knob.setValue(True)
     knob.setFlag(nuke.STARTLINE)
 
-    addPrefKnob(
+    _ = addPrefKnob(
         knob,
         "Add new buttons left and right of the row alternately, instead of to the right, in order to preserve muscle memory.",
     )
@@ -454,21 +475,21 @@ def addPreferences():
     savePreferencesToFile()
 
 
-def addPrefIntKnob(arg0, arg1, arg2, arg3):
+def addPrefIntKnob(name: str, label: str, value: int, tooltip: str):
     # fontsize knob
-    result = nuke.Int_Knob(arg0, arg1)
-    result.setValue(arg2)
+    result = nuke.Int_Knob(name, label)
+    result.setValue(value)
 
-    addPrefKnob(result, arg3)
+    addPrefKnob(result, tooltip)
 
     return result
 
 
-def addPrefBoolKnob(arg0, arg1, arg2, arg3):
+def addPrefBoolKnob(name: str, label: str, value: bool, tooltip: str):
     # close on click
-    result = nuke.Boolean_Knob(arg0, arg1)
-    result.setValue(arg2)
-    addPrefKnob(result, arg3, True)
+    result = nuke.Boolean_Knob(name, label)
+    result.setValue(value)
+    addPrefKnob(result, tooltip, True)
     return result
 
 
@@ -478,7 +499,7 @@ def addPrefBoolKnob(arg0, arg1, arg2, arg3):
 # region colors
 
 
-def interface2rgb(hexValue: int, normalize: bool = True) -> list[int]:
+def interface2rgb(hexValue: int, normalize: bool = True) -> list[float]:
     """
     Convert a color stored as a 32 bit value as used by nuke for interface colors to normalized rgb values.
 
@@ -486,7 +507,7 @@ def interface2rgb(hexValue: int, normalize: bool = True) -> list[int]:
     return [(0xFF & hexValue >> i) / 255.0 for i in [24, 16, 8]]
 
 
-def rgb2hex(rgbaValues: list[int]):
+def rgb2hex(rgbaValues: list[float]):
     """
     Convert a color stored as normalized rgb values to a hex.
     """
@@ -499,13 +520,13 @@ def rgb2hex(rgbaValues: list[int]):
     return "#%02x%02x%02x" % (rgbaValues[0], rgbaValues[1], rgbaValues[2])
 
 
-def hex2rgb(hexColor: str):
+def hex2rgb(hexColor: str) -> list[int]:
     """
     Convert a color stored as hex to rgb values.
     """
 
     hexColor = hexColor.lstrip("#")
-    return tuple(int(hexColor[i : i + 2], 16) for i in (0, 2, 4))
+    return [int(hexColor[i : i + 2], 16) for i in (0, 2, 4)]
 
 
 def rgb2interface(rgb: list[int]):
@@ -513,7 +534,9 @@ def rgb2interface(rgb: list[int]):
     Convert a color stored as rgb values to a 32 bit value as used by nuke for interface colors.
     """
     if len(rgb) == 3:
-        rgb = rgb + (255,)
+        rgb = rgb + [
+            255,
+        ]
 
     return int("%02x%02x%02x%02x" % rgb, 16)
 
@@ -582,15 +605,17 @@ def revealInBrowser(startFolder=False):
                 constants.hotboxInstance.topLayout.path + constants.hotboxInstance.mode
             )
 
-    if not os.path.exists(path):
-        path = os.path.dirname(path)
+    path = Path(path)
+
+    if not path.exists():
+        path = path.parent
 
     if operatingSystem == "Windows":
         os.startfile(path)
     elif operatingSystem == "Darwin":
-        subprocess.Popen(["open", path])
+        _ = subprocess.Popen(["open", path])
     else:
-        subprocess.Popen(["xdg-open", path])
+        _ = subprocess.Popen(["xdg-open", path])
 
 
 def getFileBrowser():

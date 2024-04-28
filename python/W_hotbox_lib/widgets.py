@@ -84,12 +84,11 @@ class QListWidgetCustom(QtWidgets.QListWidget):
             checkState = int(item.checkState())
 
             newRulePath, origRulePath = [
-                f"{self.hotboxManager.path}/{fileName}" + "_" * index
-                for index in range(2)
+                self.hotboxManager.path / (fileName + "_" * index) for index in range(2)
             ][:: (checkState - 1)]
 
-            if not os.path.exists(newRulePath):
-                os.rename(origRulePath, newRulePath)
+            if not newRulePath.exists():
+                origRulePath.rename(newRulePath)
                 break
 
     def focusInEvent(self, event):
@@ -114,20 +113,19 @@ class ColorSwatch(QtWidgets.QLabel):
     # signals
     save = QtCore.Signal()
 
-    def __init__(self, defaultColor):
+    def __init__(self, defaultColor: str, size: int = 12):
         super(ColorSwatch, self).__init__()
 
-        self.color = None
+        self.color = defaultColor
 
         self.enabled = False
         self.active = False
 
         self.child = None
-        self.parent = None
+        self.parentSwatch = None
 
-        self.size = 12
-        self.setFixedHeight(self.size)
-        self.setFixedWidth(self.size)
+        self.setFixedHeight(size)
+        self.setFixedWidth(size)
 
         self.painter = QtGui.QPainter()
 
@@ -224,21 +222,21 @@ class ColorSwatch(QtWidgets.QLabel):
         else:
             color = (
                 self.defaultColorInverted
-                if self.parent and self.color == self.defaultColor
+                if self.parentSwatch and self.color == self.defaultColor
                 else None
             )
             self.setColor(color)
 
         return True
 
-    def dragEnterEvent(self, e):
+    def dragEnterEvent(self, event):
         # check if color
-        if e.mimeData().hasFormat("application/x-color") and self.enabled:
-            e.accept()
+        if event.mimeData().hasFormat("application/x-color") and self.enabled:
+            event.accept()
         else:
-            e.ignore()
+            event.ignore()
 
-    def dropEvent(self, e):
+    def dropEvent(self, _event):
         # find color
         node = nuke.toNode(nuke.tcl("stack 0")) or nuke.selectedNode()
 
@@ -285,7 +283,7 @@ class ColorSwatch(QtWidgets.QLabel):
 
             self.setColor(hexColor)
 
-    def setColor(self, color=None, adjustChild=True, indirect=False):
+    def setColor(self, color: Optional[str] = None, adjustChild=True, indirect=False):
         """
         Set color of the swatch.
         'Indirect' parameter reflects whether the method was called directly by the user, or as a side effect.
@@ -373,7 +371,7 @@ class ColorSwatch(QtWidgets.QLabel):
 
         if (
             not ignoreInverted
-            and self.parent
+            and self.parentSwatch
             and self.color == self.defaultColorInverted
         ):
             return None
@@ -385,7 +383,7 @@ class ColorSwatch(QtWidgets.QLabel):
         """ """
         if isinstance(child, ColorSwatch):
             self.child = child
-            self.child.parent = self
+            self.child.parentSwatch = self
             self.child.assignToolTip(True)
 
     # - Copy/Paste
@@ -420,6 +418,8 @@ class ColorSwatch(QtWidgets.QLabel):
             rgbColor = interface2rgb(int(color))
             color = rgb2hex(rgbColor)
 
+        if not color:
+            return
         # check if clipboard content is a valid hex color
         if re.search("^#(?:[0-9a-fA-F]{2}){3}$", color):
             self.setColor(color)
@@ -465,25 +465,23 @@ class ColorSwatch(QtWidgets.QLabel):
         Draw diagonal line on top of colorswatch in case the swatch is set to it's default color.
         """
         if self.enabled and not self.isNonDefault():
+            size = self.width()
             self.painter.begin(self)
             self.painter.setPen(self.paintPen)
-            self.painter.drawLine(self.size - 1, 1, 1, self.size - 1)
+            self.painter.drawLine(size - 1, 1, 1, size - 1)
             self.painter.end()
 
 
-# - Tree View
+# - Hotbox items tree view (right list in the manager)
 class QTreeViewCustom(QtWidgets.QTreeView):
     def __init__(self, parentClass: HotboxManager):
         super(QTreeViewCustom, self).__init__()
 
         self.enabled = False
-
         self.clipboard = []
-
         self.parentClass = parentClass
 
         self.header().hide()
-        self.expandsOnDoubleClick = True
 
         self.dataModel = QtGui.QStandardItemModel()
         self.root = self.dataModel.invisibleRootItem()
@@ -492,24 +490,13 @@ class QTreeViewCustom(QtWidgets.QTreeView):
         self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
 
         # to check whether the tree was populated from scratch of updated
-        self.scope = ""
-        self.previousScope = ""
+        self.scope: Optional[Path] = None
+        self.previousScope: Optional[Path] = None
 
-        # Unfortunatley Nuke 10 crashes on startup when using the following line:
-        # self.selectionModel().selectionChanged.connect(self.setSelectedItems)
-        # Therefore I had to do this weird construction where the setModel Method is subclassed.
+        self.selectionModel().selectionChanged.connect(self.setSelectedItems)
 
-    # --------------------------------------------------------------------------------------------------
-
-    def setModel(self, model):
-        super(QTreeViewCustom, self).setModel(model)
-        self.connect(
-            self.selectionModel(),
-            QtCore.SIGNAL("selectionChanged(QItemSelection, QItemSelection)"),
-            self.setSelectedItems,
-        )
-
-    # --------------------------------------------------------------------------------------------------
+    def expandsOnDoubleClick(self) -> bool:
+        return True
 
     def setEnabled(self, mode: bool = True):
         self.enabled = mode
@@ -530,7 +517,7 @@ class QTreeViewCustom(QtWidgets.QTreeView):
 
         # find current scope
         if not self.parentClass.contextual:
-            self.scope: Path = self.parentClass.path
+            self.scope = self.parentClass.path
 
         else:
             classItems = self.parentClass.classesList.selectedItems()
@@ -546,19 +533,22 @@ class QTreeViewCustom(QtWidgets.QTreeView):
 
             self.scope = self.parentClass.path / classItemText
 
-        self.update = self.previousScope == self.scope
-        if self.update:
+        self.do_update = self.previousScope == self.scope
+        if self.do_update:
             # find currently collapsed menus
             self.collapsedMenus = []
 
             for button in self.buttonsList.values():
+                log.debug(button)
+                log.debug(type(button))
+
                 index = self.dataModel.indexFromItem(button)
 
                 if not self.isExpanded(index):
                     self.collapsedMenus.append(button.path)
 
         # reset buttons list (all items will be replaced with new items when rebuilding anyway)
-        self.buttonsList: dict[str, QtWidgets.QWidget] = {}
+        self.buttonsList: dict[str, QStandardItemChild] = {}
         self.clearTree()
 
         # Fill the buttonstree if there is an item selected in the classescolumn, or the mode is set to all.
@@ -572,7 +562,7 @@ class QTreeViewCustom(QtWidgets.QTreeView):
         self.expandAll()
 
         # closeall the menus when updating
-        if self.update:
+        if self.do_update:
             for path in self.collapsedMenus:
                 if path in self.buttonsList:
                     button = self.buttonsList[path]
@@ -589,10 +579,14 @@ class QTreeViewCustom(QtWidgets.QTreeView):
         for _ in range(self.dataModel.rowCount()):
             self.dataModel.takeRow(0)
 
-    def addChild(self, parent, path: Path):
+    def addChild(self, parent: QtGui.QStandardItem, path: Path):
         """
         Loop through folder structure and add items on the fly
         """
+        if not path.is_dir():
+            raise ValueError(
+                "You passed a file instead of a directory: {path.as_posix()}"
+            )
 
         for i in sorted(path.iterdir()):
             if i.name[0] not in ["_", "."]:
@@ -600,7 +594,7 @@ class QTreeViewCustom(QtWidgets.QTreeView):
                 if not name:
                     return
 
-                child = QStandardItemChild(name, str(i))
+                child = QStandardItemChild(name, i)
                 parent.appendRow(child)
 
                 self.buttonsList[i.as_posix()] = child
@@ -640,11 +634,11 @@ class QTreeViewCustom(QtWidgets.QTreeView):
         if self.nextItem is None:
             return
 
-        sourceFolder = Path(self.currentItem.path).parent
-        sourceFile = Path(self.currentItem.path).name
+        sourceFolder = self.currentItem.path.parent
+        sourceFile = self.currentItem.path.name
 
-        destinationFolder = Path(self.nextItem.path).parent
-        destinationFile = Path(self.nextItem.path).name
+        destinationFolder = self.nextItem.path.parent
+        destinationFile = self.nextItem.path.name
 
         log.debug(f"""
         Source Folder: {sourceFolder}
@@ -800,7 +794,7 @@ class QTreeViewCustom(QtWidgets.QTreeView):
             button = self.buttonsList[path]
 
             updatedPath = path.replace(orig_path.as_posix(), new_path.as_posix())
-            button.path = updatedPath
+            button.path = Path(updatedPath)
 
             # add updated path to dict
             self.buttonsList[updatedPath] = button
@@ -1031,7 +1025,7 @@ class QTreeViewCustom(QtWidgets.QTreeView):
 
 
 class QStandardItemChild(QtGui.QStandardItem):
-    def __init__(self, name, path):
+    def __init__(self, name: str, path: Path):
         super(QStandardItemChild, self).__init__()
 
         # self.richTextName = name
@@ -1066,7 +1060,7 @@ class QStandardItemChild(QtGui.QStandardItem):
         self.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
 
         # - change color is submenu
-        if os.path.isdir(self.path):
+        if self.path.is_dir():
             self.setBackground(QtGui.QColor(45, 45, 45))
 
         parentObject = self.parent()
