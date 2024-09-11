@@ -13,6 +13,10 @@ from pathlib import Path
 from webbrowser import open as openURL
 
 import nuke
+import contextlib
+
+from datetime import datetime as dt
+import shutil
 
 from .repair import RepairHotbox
 from .utils import (
@@ -26,6 +30,8 @@ from .utils import (
     interface2rgb,
     rgb2interface,
     rgb2hex,
+    releaseDate,
+    version,
 )
 
 
@@ -916,6 +922,8 @@ class QTreeViewCustom(QtWidgets.QTreeView):
         itemPath = getFirstAvailableFilePath(folderPath)
 
         if not folder:
+            from .manager import FileHeader
+
             itemName = "New Item"
             itemPath = itemPath.with_suffix(".py")
 
