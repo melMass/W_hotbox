@@ -11,6 +11,7 @@ import nuke
 # region constants
 
 from mtb.core import mklog
+import logging
 
 
 def get_preference_node():
@@ -20,7 +21,8 @@ def get_preference_node():
     return pref
 
 
-log = mklog("W_hotbox")
+# log = mklog("W_hotbox", logging.INFO)
+log = mklog("W_hotbox", logging.DEBUG)
 
 # - true constants
 version = "1.9"
@@ -515,9 +517,12 @@ def rgb2hex(rgbaValues: list[float]):
     rgbaValues = [int(i * 255) for i in rgbaValues]
 
     if len(rgbaValues) < 3:
+        log.error(f"rgb2hex: Values must be of length 3 or 4, found {len(rgbaValues)}.")
         return
 
-    return "#%02x%02x%02x" % (rgbaValues[0], rgbaValues[1], rgbaValues[2])
+    return "#" + "".join(
+        f"{i:02x}" for i in rgbaValues[:3]
+    )  # %02x%02x%02x" % (rgbaValues[0], rgbaValues[1], rgbaValues[2])
 
 
 def hex2rgb(hexColor: str) -> list[int]:
@@ -534,11 +539,9 @@ def rgb2interface(rgb: list[int]):
     Convert a color stored as rgb values to a 32 bit value as used by nuke for interface colors.
     """
     if len(rgb) == 3:
-        rgb = rgb + [
-            255,
-        ]
+        rgb.append(255)
 
-    return int("%02x%02x%02x%02x" % rgb, 16)
+    return int("".join(f"{i:02x}" for i in rgb), 16)
 
 
 def getTileColor(node: Optional[nuke.Node] = None):
@@ -656,6 +659,8 @@ def getAttributeFromFile(path: Path, attribute: str = "name"):
     Scan file for the appropriate attribute.
     By default attribute is name. If no attribute found, return None
     """
+    log.debug(f"Getting attribute {attribute} from {path}")
+    res = None
 
     if path.is_file():
         tag = f"# {attribute.upper()}: "
@@ -664,11 +669,17 @@ def getAttributeFromFile(path: Path, attribute: str = "name"):
                 break
 
             if line.startswith(tag):
-                return line.split(tag)[-1].replace("\n", "")
+                res = line.split(tag)[-1].replace("\n", "")
+                break
     elif attribute == "name":
-        return read_name(path / "_name.json")
+        res = read_name(path / "_name.json")
 
-    return None
+    if res:
+        log.debug(f"Found attribute {attribute}: {res}")
+    else:
+        log.error(f"NOT found attribute {attribute}: {res}")
+
+    return res
 
 
 def getScriptFromFile(path: Path):

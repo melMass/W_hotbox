@@ -646,9 +646,8 @@ class HotboxManager(QtWidgets.QWidget):
 
                 # rule
                 else:
-                    ignoreClasses = bool(
-                        getAttributeFromFile(self.loadedScript, "ignore classes") or 0
-                    )
+                    att = getAttributeFromFile(self.loadedScript, "ignore classes")
+                    ignoreClasses = bool(int(att) if att else 0)
 
                     self.ignoreSave = True
                     self.rulesFlagCheckbox.setChecked(ignoreClasses)
@@ -741,6 +740,10 @@ class HotboxManager(QtWidgets.QWidget):
             else:
                 path = self.loadedScript
 
+            if not path:
+                log.error("Could not find path to save the script to.")
+                return
+
             # file
             if path.name.endswith(".py"):
                 text = self.scriptEditorScript.toPlainText()
@@ -761,6 +764,8 @@ class HotboxManager(QtWidgets.QWidget):
                         ).getHeader()
                         + text
                     )
+                if not path.parent.exists():
+                    path.parent.mkdir()
 
                 path.write_text(newFileContent)
                 # change save status

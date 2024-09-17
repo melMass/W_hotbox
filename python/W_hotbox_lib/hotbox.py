@@ -76,6 +76,7 @@ class Hotbox(QtWidgets.QWidget):
             nodeRoot = self.selection[0].fullName()
             if nodeRoot.count("."):
                 self.groupRoot = ".".join([self.groupRoot] + nodeRoot.split(".")[:-1])
+                log.debug(f"Group root is {self.groupRoot}")
 
         # - main hotbox
         if not subMenuMode:
@@ -853,7 +854,7 @@ def showHotbox(force=False, resetPosition=True):
     if (
         preferencesNode.knob("hotboxTriggerDropdown").getValue()
         and not force
-        and (constants.hotboxInstance != None and constants.hotboxInstance.active)
+        and (constants.hotboxInstance is not None and constants.hotboxInstance.active)
     ):
         constants.hotboxInstance.closeHotbox(hotkey=True)
         return
@@ -865,12 +866,13 @@ def showHotbox(force=False, resetPosition=True):
     if resetPosition:
         constants.lastPosition = ""
 
-    if constants.hotboxInstance is None or not constants.hotboxInstance.active:
+    if not constants.hotboxInstance or not constants.hotboxInstance.active:
         constants.hotboxInstance = Hotbox(position=constants.lastPosition)
         constants.hotboxInstance.show()
 
 
 def showHotboxSubMenu(path: str, name: str):
+    log.debug("Show submenu")
     constants = Constants()
     constants.hotboxInstance.active = False
     if constants.hotboxInstance is None or not constants.hotboxInstance.active:

@@ -275,6 +275,7 @@ class ColorSwatch(QtWidgets.QLabel):
 
         # convert current color to Nuke notation
         rgbColor = hex2rgb(self.color)
+
         interfaceColor = rgb2interface(rgbColor)
 
         color = nuke.getColor(interfaceColor)
@@ -480,6 +481,8 @@ class ColorSwatch(QtWidgets.QLabel):
 
 # - Hotbox items tree view (right list in the manager)
 class QTreeViewCustom(QtWidgets.QTreeView):
+    currentItem: QStandardItemChild
+
     def __init__(self, parentClass: HotboxManager):
         super(QTreeViewCustom, self).__init__()
 
@@ -647,6 +650,7 @@ class QTreeViewCustom(QtWidgets.QTreeView):
         destinationFile = self.nextItem.path.name
 
         log.debug(f"""
+        NextItem Path: {self.nextItem.path}
         Source Folder: {sourceFolder}
         Source File: {sourceFile}
 
@@ -842,10 +846,12 @@ class QTreeViewCustom(QtWidgets.QTreeView):
                 if file.name[0] not in ["_", "."] and len(file.name) in {3, 6}
             ]
 
-    def getNextIndex(self, direction, index):
+    def getNextIndex(self, direction: int, index: int):
         """
         Get the index of the item next to the current item
         """
+
+        log.debug(f"getNextIndex: {direction} {index}")
 
         if direction == 2:
             self.nextItem = self.currentItem.parent()
@@ -854,7 +860,7 @@ class QTreeViewCustom(QtWidgets.QTreeView):
             if direction:
                 # if current item is the submenu and the move-down button is triggered
                 forceExpanded = False
-                if not os.path.isfile(self.currentItem.path):
+                if not self.currentItem.path.is_file():
                     item = self.dataModel.itemFromIndex(index)
 
                     if self.isExpanded(index) and item.hasChildren():
@@ -875,12 +881,11 @@ class QTreeViewCustom(QtWidgets.QTreeView):
             if self.nextItem is None and direction:
                 parentItem = self.currentItem.parent()
                 if parentItem is not None:
-                    newBaseName = str(int(os.path.basename(parentItem.path)) + 1).zfill(
-                        3
-                    )
-                    parentItem.path = (
-                        f"{os.path.dirname(parentItem.path)}/{newBaseName}"
-                    )
+                    current_base_name = int(parentItem.path.stem)
+                    new_base_name = str(current_base_name + 1).zfill(3)
+
+                    new_path = parentItem.path.with_name(new_base_name)
+                    parentItem.path = new_path
                     self.nextItem = parentItem
 
             # exit
@@ -889,18 +894,22 @@ class QTreeViewCustom(QtWidgets.QTreeView):
 
             # if submenu
             # skip item if expanded
-            if os.path.dirname(self.nextItem.path) == os.path.dirname(
-                self.currentItem.path
-            ) and not os.path.isfile(self.nextItem.path):
+            if (
+                self.nextItem.path.parent == self.currentItem.path.parent
+                and not self.nextItem.path.is_file()
+            ):
                 if not self.nextItem.hasChildren():
-                    self.nextItem.path += (
-                        f"/001{os.path.basename(self.currentItem.path)[3:]}"
+                    log.debug("Next Item is a folder with no children")
+                    self.nextItem.path = (
+                        self.nextItem.path / f"001{self.currentItem.path.suffix}"
                     )
                 elif direction and (
                     self.isExpanded(self.nextIndex) and self.nextItem.hasChildren()
                 ):
+                    log.debug("Next Item is a folder with children and is expanded")
                     self.getNextIndex(direction, self.nextIndex)
 
+            log.debug(f"Next Item: {self.nextItem.path}")
     # - hotbox items tree actions
     def addItem(self, folder=False):
         """
