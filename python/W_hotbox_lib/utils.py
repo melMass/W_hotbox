@@ -1,0 +1,697 @@
+from __future__ import annotations
+import contextlib
+import os
+import platform
+import subprocess
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional
+
+import nuke
+
+# region constants
+
+from mtb.core import mklog
+import logging
+
+
+def get_preference_node():
+    pref = nuke.toNode("preferences")
+    if not pref:
+        raise LookupError("Could not find the preference node, this shouldn't happen")
+    return pref
+
+
+# log = mklog("W_hotbox", logging.INFO)
+log = mklog("W_hotbox", logging.DEBUG)
+
+# - true constants
+version = "1.9"
+releaseDate = "March 28 2021"
+preferencesNode = get_preference_node()
+operatingSystem = platform.system()
+homeFolder = Path.home() / ".nuke"
+
+
+def read_name(name_file: Path) -> Optional[str]:
+    if name_file.is_file():
+        read_name = name_file.read_text(encoding="utf-8")
+        return read_name.strip()
+    return None
+
+
+def update_level_with_name(level: Path, name: str):
+    if "/" in name:
+        return level.with_name(name)
+    return level.parent / name
+
+
+def process_file_name(file: Path) -> Path:
+    new_file = file
+    if len(file.name) == 6:
+        with file.open() as f:
+            for line in f:
+                if line.startswith("# NAME: "):
+                    new_file = Path(line.split("# NAME: ")[-1].rstrip("\n"))
+                    new_file = new_file.with_name(
+                        new_file.name.replace("/", "**BACKSLASH**")
+                    )
+    return new_file
+
+
+if TYPE_CHECKING:
+    from .hotbox import Hotbox
+    from .manager import HotboxManager
+    from .widgets import AboutDialog
+
+
+# - mutable constant singleton
+class Constants:
+    _instance: Optional[Constants] = None
+
+    hotboxInstance: Optional[Hotbox] = None
+    hotboxManagerInstance: Optional[HotboxManager] = None
+    aboutDialogInstant: Optional[AboutDialog] = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(Constants, cls).__new__(cls)
+            cls._instance.init_singleton()
+        return cls._instance
+
+    def init_singleton(self):
+        self.hotboxInstance = None
+        self.hotboxManagerInstance = None
+        self.aboutDialogInstance = None
+        self.renameDialogInstance = None
+        self.lastPosition = ""
+        self.shortcut = None
+
+    def some_singleton_method(self):
+        # Implement the methods of the singleton class here
+        pass
+
+
+# endregion
+
+# region preferences
+
+
+def addToPreferences(knobObject: nuke.Knob, tooltip: Optional[str] = None):
+    """
+    Add a knob to the preference panel.
+    Save current preferences to the prefencesfile in the .nuke folder.
+    """
+
+    if knobObject.name() not in preferencesNode.knobs().keys():
+        if tooltip != None:
+            knobObject.setTooltip(tooltip)
+
+        preferencesNode.addKnob(knobObject)
+        savePreferencesToFile()
+        return preferencesNode.knob(knobObject.name())
+
+
+def savePreferencesToFile():
+    """
+    Save current preferences to the prefencesfile in the .nuke folder.
+    Pythonic alternative to the 'ok' button of the preferences panel.
+    """
+
+    nukeFolder = os.path.expanduser("~") + "/.nuke/"
+    preferencesFile = (
+        f"{nukeFolder}preferences{nuke.NUKE_VERSION_MAJOR}.{nuke.NUKE_VERSION_MINOR}.nk"
+    )
+
+    preferencesNode = get_preference_node()
+
+    customPrefences = preferencesNode.writeKnobs(
+        nuke.WRITE_USER_KNOB_DEFS
+        | nuke.WRITE_NON_DEFAULT_ONLY
+        | nuke.TO_SCRIPT
+        | nuke.TO_VALUE
+    )
+    customPrefences = customPrefences.replace("\n", "\n  ")
+
+    preferencesCode = (
+        "Preferences {\n inputs 0\n name Preferences%s\n}" % customPrefences
+    )
+    # write to file
+    with open(preferencesFile, "wb") as f:
+        _ = f.write(preferencesCode.encode("utf-8"))
+
+
+def deletePreferences():
+    """
+    Delete all the W_hotbox related items in the properties panel.
+    """
+
+    firstLaunch = True
+    for i in preferencesNode.knobs().keys():
+        if "hotbox" in i:
+            knob = preferencesNode.knob(i)
+            if knob:
+                preferencesNode.removeKnob(knob)
+            firstLaunch = False
+
+    # remove TabKnob
+    label = preferencesNode.knob("hotboxLabel")
+    if label:
+        preferencesNode.removeKnob(label)
+
+    if not firstLaunch:
+        savePreferencesToFile()
+
+
+def updatePreferences():
+    """
+    Check whether the hotbox was updated since the last launch. If so refresh the preferences.
+    """
+
+    allKnobs = preferencesNode.knobs().keys()
+
+    # Older versions of the hotbox had a knob called 'iconLocation'.
+    # This was a mistake and the knob was supposed to be called
+    #'hotboxIconLocation', similar to the rest of the knobs.
+
+    forceUpdate = False
+
+    # if "iconLocation" in allKnobs and "hotboxIconLocation" not in allKnobs:
+    #     forceUpdate = fix_old_icon_location()
+    allKnobs = preferencesNode.knobs().keys()
+    proceedUpdate = True
+
+    if "hotboxVersion" in allKnobs:
+        if not forceUpdate:
+            try:
+                if float(version) == float(
+                    preferencesNode.knob("hotboxVersion").value()
+                ):
+                    proceedUpdate = False
+            except Exception:
+                proceedUpdate = True
+
+        if proceedUpdate:
+            resetPreferences(allKnobs)
+    elif forceUpdate:
+        if proceedUpdate:
+            resetPreferences(allKnobs)
+
+    # nuke 12.2v4 and 13 bug. The last tab wont be shown. Workaround is to add an extra tab
+    customTabs = [
+        k.name()
+        for k in preferencesNode.knobs().values()
+        if isinstance(k, nuke.Tab_Knob)
+    ]
+    if customTabs and customTabs[-1] == "hotboxLabel":
+        # make new tab and hide it
+        dummyTab = nuke.Tab_Knob("hotboxDummyTab", "Dummy")
+        dummyTab.setFlag(0x00040000)
+
+        _ = addToPreferences(dummyTab)
+
+
+def resetPreferences(allKnobs: list[str]):
+    currentSettings = {
+        knob: preferencesNode.knob(knob).value()
+        for knob in allKnobs
+        if knob.startswith("hotbox") and knob != "hotboxVersion"
+    }
+
+    # delete all the preferences
+    deletePreferences()
+
+    # re-add all the knobs
+    addPreferences()
+
+    # restore
+    for knob, value in currentSettings.items():
+        with contextlib.suppress(Exception):
+            _ = preferencesNode.knob(knob).setValue(value)
+
+    # save to file
+    savePreferencesToFile()
+
+
+# def fix_old_icon_location():
+#     currentSetting = preferencesNode.knob("iconLocation").value()
+
+#     # delete 'iconLocation'
+#     preferencesNode.removeKnob(preferencesNode.knob("iconLocation"))
+
+#     # re-add 'hotboxIconLocation'
+#     iconLocationKnob = nuke.File_Knob("hotboxIconLocation", "Icons location")
+#     iconLocationKnob.setValue(currentSetting)
+#     addToPreferences(iconLocationKnob)
+
+#     return True
+
+
+def addPrefKnob(knob: nuke.Knob, tooltip: str, new_line: bool = False):
+    if new_line:
+        knob.clearFlag(nuke.STARTLINE)
+    _ = addToPreferences(knob, tooltip)
+
+    return tooltip
+
+
+def addPreferences():
+    """
+    Add knobs to the preferences needed for this module to work properly.
+    """
+    constants = Constants()
+
+    _ = addToPreferences(nuke.Tab_Knob("hotboxLabel", "W_hotbox"))
+    _ = addToPreferences(nuke.Text_Knob("hotboxGeneralLabel", "<b>General</b>"))
+
+    # - version knob to check whether the hotbox was updated
+    knob = nuke.String_Knob("hotboxVersion", "version")
+    knob.setValue(version)
+    _ = addToPreferences(knob)
+    preferencesNode.knob("hotboxVersion").setVisible(False)
+
+    # - location knob
+    knob = nuke.File_Knob("hotboxLocation", "Hotbox location")
+
+    _ = addPrefKnob(
+        knob,
+        "The folder on disk the Hotbox uses to store the Hotbox buttons. Make sure this path links to the folder containing the 'All','Single' and 'Multiple' folders.",
+    )
+
+    # - icons knob
+    knob = nuke.File_Knob("hotboxIconLocation", "Icons location")
+    knob.setValue((homeFolder / "icons" / "W_hotbox").as_posix())
+
+    _ = addPrefKnob(
+        knob,
+        "The folder on disk the where the Hotbox related icons are stored. Make sure this path links to the folder containing the PNG files.",
+    )
+
+    # - open manager button
+    knob = nuke.PyScript_Knob(
+        "hotboxOpenManager",
+        "open hotbox manager",
+        "W_hotboxManager.showHotboxManager()",
+    )
+    _ = addPrefKnob(knob, "Open the Hotbox Manager.", True)
+
+    # - open in file system button knob
+    knob = nuke.PyScript_Knob(
+        "hotboxOpenFolder", "open hotbox folder", "W_hotbox_utils.revealInBrowser(True)"
+    )
+    _ = addPrefKnob(
+        knob, "Open the folder containing the files that store the Hotbox buttons."
+    )
+
+    # - delete preferences button knob
+    knob = nuke.PyScript_Knob(
+        "hotboxDeletePreferences",
+        "delete preferences",
+        "W_hotbox_utils.deletePreferences()",
+    )
+
+    _ = addPrefKnob(
+        knob,
+        "Delete all the Hotbox related knobs from the Preferences Panel. After clicking this button the Preferences Panel should be closed by clicking the 'cancel' button.",
+    )
+
+    # Launch Label knob
+    _ = addToPreferences(nuke.Text_Knob("hotboxLaunchLabel", "<b>Launch</b>"))
+
+    # shortcut knob
+    knob = nuke.String_Knob("hotboxShortcut", "Shortcut")
+    knob.setValue("`")
+
+    _ = addPrefKnob(
+        knob,
+        "The key that triggers the Hotbox. Should be set to a single key without any modifier keys. "
+        "Spacebar can be defined as 'space'. Nuke needs be restarted in order for the changes to take effect.",
+    )
+
+    constants.shortcut = preferencesNode.knob("hotboxShortcut").value()
+
+    # reset shortcut knob
+    knob = nuke.PyScript_Knob("hotboxResetShortcut", "set", "W_hotbox.resetMenuItems()")
+    _ = addPrefKnob(knob, "Apply new shortcut.", True)
+    # trigger mode knob
+    knob = nuke.Enumeration_Knob(
+        "hotboxTriggerDropdown", "Launch mode", ["Press and Hold", "Single Tap"]
+    )
+
+    _ = addPrefKnob(
+        knob,
+        "The way the hotbox is launched. When set to 'Press and Hold' the Hotbox will appear whenever the shortcut is pressed and disappear as soon as the user releases the key. "
+        "When set to 'Single Tap' the shortcut will toggle the Hotbox on and off.",
+    )
+
+    knob = addPrefBoolKnob(
+        "hotboxCloseOnClick",
+        "Close on button click",
+        False,
+        "Close the Hotbox whenever a button is clicked (excluding submenus obviously). This option will only take effect when the launch mode is set to 'Single Tap'.",
+    )
+    knob = addPrefBoolKnob(
+        "hotboxExecuteOnClose",
+        "Execute button without click",
+        False,
+        "Execute the button underneath the cursor whenever the Hotbox is closed.",
+    )
+    # Rule/Class order
+    knob = nuke.Enumeration_Knob(
+        "hotboxRuleClassOrder", "Order", ["Class - Rule", "Rule - Class"]
+    )
+    _ = addPrefKnob(knob, "The order in which the buttons will be loaded.")
+
+    # Manager startup default
+    knob = nuke.Enumeration_Knob(
+        "hotboxOpenManagerOptions",
+        "Manager startup default",
+        ["Contextual", "All", "Rules", "Contextual/All", "Contextual/Rules"],
+    )
+    _tooltip = addPrefKnob(
+        knob,
+        "The section of the Manager that will be opened on startup.\n"
+        "\n<b>Contextual</b> Open the 'Single' or 'Multiple' section, depending on selection."
+        "\n<b>All</b> Open the 'All' section."
+        "\n<b>Rules</b> Open the 'Rules' section."
+        "\n<b>Contextual/All</b> Contextual if the selection matches a button in the 'Single' or 'Multiple' section, otherwise the 'All' section will be opened."
+        "\n<b>Contextual/Rules</b> Contextual if the selection matches a button in the 'Single' or 'Multiple' section, otherwise the 'Rules' section will be opened.",
+        True,
+    )
+    # Appearence knob
+    _ = addToPreferences(nuke.Text_Knob("hotboxAppearanceLabel", "<b>Appearance</b>"))
+
+    # color dropdown knob
+    knob = nuke.Boolean_Knob("hotboxMirroredLayout", "Mirrored")
+
+    _ = addPrefKnob(
+        knob,
+        "By default the contextual buttons will appear at the top of the hotbox and the non contextual buttons at the bottom.",
+    )
+
+    # color dropdown knob
+    knob = nuke.Enumeration_Knob(
+        "hotboxColorDropdown", "Color scheme", ["Maya", "Nuke", "Custom"]
+    )
+
+    _ = addPrefKnob(
+        knob,
+        "The color of the buttons when selected.\n"
+        "\n<b>Maya</b> Autodesk Maya's muted blue."
+        "\n<b>Nuke</b> Nuke's bright orange."
+        "\n<b>Custom</b> which lets the user pick a color.",
+    )
+
+    # custom color knob
+    knob = nuke.ColorChip_Knob("hotboxColorCustom", "")
+    _ = addPrefKnob(
+        knob,
+        "The color of the buttons when selected, when the color dropdown is set to 'Custom'.",
+        True,
+    )
+    knob = addPrefBoolKnob(
+        "hotboxColorCenter",
+        "Colorize hotbox center",
+        True,
+        "Color the center button of the hotbox depending on the current selection. When unticked the center button will be colored a lighter tone of grey.",
+    )
+    knob = addPrefBoolKnob(
+        "hotboxAutoTextColor",
+        "Auto adjust text color",
+        True,
+        "Automatically adjust the color of a button's text to its background color in order to keep enough of a difference to remain readable.",
+    )
+    knob = addPrefIntKnob(
+        "hotboxFontSize",
+        "Font size",
+        8,
+        "The font size of the text that appears in the hotbox buttons, unless defined differently on a per-button level.",
+    )
+    # fontsize manager's script editor knob
+    knob = nuke.Int_Knob("hotboxScriptEditorFontSize", "Font size script editor")
+    knob.setValue(11)
+    _ = addPrefKnob(
+        knob,
+        "The font size of the text that appears in the hotbox manager's script editor.",
+        True,
+    )
+    addToPreferences(nuke.Text_Knob("hotboxItemsLabel", "<b>Items per Row</b>"))
+
+    knob = addPrefIntKnob(
+        "hotboxRowAmountSelection",
+        "Selection specific",
+        3,
+        "The maximum amount of buttons a row in the upper half of the Hotbox can contain. "
+        "When the row's maximum capacity is reached a new row will be started. This new row's maximum capacity will be incremented by the step size.",
+    )
+    knob = addPrefIntKnob(
+        "hotboxRowAmountAll",
+        "All",
+        3,
+        "The maximum amount of buttons a row in the lower half of the Hotbox can contain. "
+        "When the row's maximum capacity is reached a new row will be started.This new row's maximum capacity will be incremented by the step size.",
+    )
+    knob = addPrefIntKnob(
+        "hotboxRowStepSize",
+        "Step size",
+        1,
+        "The amount a buttons every new row's maximum capacity will be increased by. "
+        "Having a number unequal to zero will result in a triangular shape when having multiple rows of buttons.",
+    )
+    # spawnmode knob
+    knob = nuke.Boolean_Knob("hotboxButtonSpawnMode", "Add new buttons to the sides")
+    knob.setValue(True)
+    knob.setFlag(nuke.STARTLINE)
+
+    _ = addPrefKnob(
+        knob,
+        "Add new buttons left and right of the row alternately, instead of to the right, in order to preserve muscle memory.",
+    )
+
+    # hide the iconLocation knob if environment varible called 'W_HOTBOX_HIDE_ICON_LOC' is set to 'true' or '1'
+    preferencesNode.knob("hotboxIconLocation").setVisible(True)
+    if "W_HOTBOX_HIDE_ICON_LOC" in os.environ and os.environ[
+        "W_HOTBOX_HIDE_ICON_LOC"
+    ].lower() in ["true", "1"]:
+        preferencesNode.knob("hotboxIconLocation").setVisible(False)
+
+    savePreferencesToFile()
+
+
+def addPrefIntKnob(name: str, label: str, value: int, tooltip: str):
+    # fontsize knob
+    result = nuke.Int_Knob(name, label)
+    result.setValue(value)
+
+    addPrefKnob(result, tooltip)
+
+    return result
+
+
+def addPrefBoolKnob(name: str, label: str, value: bool, tooltip: str):
+    # close on click
+    result = nuke.Boolean_Knob(name, label)
+    result.setValue(value)
+    addPrefKnob(result, tooltip, True)
+    return result
+
+
+# endregion
+
+
+# region colors
+
+
+def interface2rgb(hexValue: int, normalize: bool = True) -> list[float]:
+    """
+    Convert a color stored as a 32 bit value as used by nuke for interface colors to normalized rgb values.
+
+    """
+    return [(0xFF & hexValue >> i) / 255.0 for i in [24, 16, 8]]
+
+
+def rgb2hex(rgbaValues: list[float]):
+    """
+    Convert a color stored as normalized rgb values to a hex.
+    """
+
+    rgbaValues = [int(i * 255) for i in rgbaValues]
+
+    if len(rgbaValues) < 3:
+        log.error(f"rgb2hex: Values must be of length 3 or 4, found {len(rgbaValues)}.")
+        return
+
+    return "#" + "".join(
+        f"{i:02x}" for i in rgbaValues[:3]
+    )  # %02x%02x%02x" % (rgbaValues[0], rgbaValues[1], rgbaValues[2])
+
+
+def hex2rgb(hexColor: str) -> list[int]:
+    """
+    Convert a color stored as hex to rgb values.
+    """
+
+    hexColor = hexColor.lstrip("#")
+    return [int(hexColor[i : i + 2], 16) for i in (0, 2, 4)]
+
+
+def rgb2interface(rgb: list[int]):
+    """
+    Convert a color stored as rgb values to a 32 bit value as used by nuke for interface colors.
+    """
+    if len(rgb) == 3:
+        rgb.append(255)
+
+    return int("".join(f"{i:02x}" for i in rgb), 16)
+
+
+def getTileColor(node: Optional[nuke.Node] = None):
+    """
+    If a node has it's color set automatically, the 'tile_color' knob will return 0.
+    If so, this function will scan through the preferences to find the correct color value.
+    """
+
+    if not node:
+        node = nuke.selectedNode()
+
+    interfaceColor = node.knob("tile_color").value()
+
+    if interfaceColor == 0:
+        interfaceColor = nuke.defaultNodeColor(node.Class())
+
+    return interfaceColor
+
+
+def getSelectionColor():
+    """
+    Return color to be used for the selected items of the hotbox.
+    """
+
+    customColor = rgb2hex(
+        interface2rgb(preferencesNode.knob("hotboxColorCustom").value())
+    )
+    colorMode = int(preferencesNode.knob("hotboxColorDropdown").getValue())
+
+    return ["#5285a6", "#f7931e", customColor][colorMode]
+
+
+# endregion
+
+
+# region OS
+
+
+def getHotBoxLocation(path: Optional[str] = None) -> Path:
+    """
+    Returns the location of the hotbox.
+    """
+    # folder = ""
+    folder = path or preferencesNode.knob("hotboxLocation").value()
+    # if folder[-1] != "/":
+    # folder += "/"
+
+    return Path(os.path.expandvars(folder))
+
+
+def revealInBrowser(startFolder=False):
+    """
+    Reveal the hotbox folder in a filebrowser
+    """
+    constants = Constants()
+    if startFolder:
+        path = getHotBoxLocation()
+
+    else:
+        try:
+            path = constants.hotboxInstance.topLayout.folderList[0]
+        except Exception:
+            path = (
+                constants.hotboxInstance.topLayout.path + constants.hotboxInstance.mode
+            )
+
+    path = Path(path)
+
+    if not path.exists():
+        path = path.parent
+
+    if operatingSystem == "Windows":
+        os.startfile(path)
+    elif operatingSystem == "Darwin":
+        _ = subprocess.Popen(["open", path])
+    else:
+        _ = subprocess.Popen(["xdg-open", path])
+
+
+def getFileBrowser():
+    """
+    Determine the name of the file browser on the current system.
+    """
+
+    if operatingSystem == "Darwin":
+        return "Finder"
+    elif operatingSystem == "Windows":
+        return "Explorer"
+    else:
+        return "file browser"
+
+
+def getFirstAvailableFilePath(folder: Path) -> Path:
+    """
+    loop over content of folder to find an appropriate name for the new item
+    """
+
+    newFileName = "001"
+
+    content = [f for f in folder.iterdir() if f.name[0] not in [".", "_"]]
+    content.sort()
+
+    while newFileName in [i.name[:3] for i in content]:
+        newFileName = str(int(newFileName) + 1).zfill(3)
+
+    return folder / newFileName
+
+
+def read_lines(path: Path) -> list[str]:
+    return path.read_text(encoding="utf-8").split("\n")
+
+
+def getAttributeFromFile(path: Path, attribute: str = "name"):
+    """
+    Scan file for the appropriate attribute.
+    By default attribute is name. If no attribute found, return None
+    """
+    log.debug(f"Getting attribute {attribute} from {path}")
+    res = None
+
+    if path.is_file():
+        tag = f"# {attribute.upper()}: "
+        for line in read_lines(path):
+            if not line.startswith("#"):
+                break
+
+            if line.startswith(tag):
+                res = line.split(tag)[-1].replace("\n", "")
+                break
+    elif attribute == "name":
+        res = read_name(path / "_name.json")
+
+    if res:
+        log.debug(f"Found attribute {attribute}: {res}")
+    else:
+        log.error(f"NOT found attribute {attribute}: {res}")
+
+    return res
+
+
+def getScriptFromFile(path: Path):
+    """
+    Extract the appropriate fucntion from the file. If no name found, return None
+    """
+    if path.is_file():
+        lines = read_lines(path)
+        for index, line in enumerate(lines):
+            if not line.startswith("#"):
+                return "\n".join(lines[index + 1 :]).replace("\t", " " * 4)
+    return None
+
+
+# endregion
